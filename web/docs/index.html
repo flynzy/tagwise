@@ -1,0 +1,1151 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Tagwise Docs — Polymarket Copy Trading Bot</title>
+  <meta name="description" content="Documentation for Tagwise, the Telegram bot that tracks top Polymarket traders and enables automated copy trading.">
+  <link rel="stylesheet" href="./style.css">
+  <link rel="preconnect" href="https://fonts.cdnfonts.com">
+  <link href="https://fonts.cdnfonts.com/css/cabinet-grotesk" rel="stylesheet">
+  <link href="https://fonts.cdnfonts.com/css/general-sans" rel="stylesheet">
+  <link href="https://fonts.cdnfonts.com/css/jetbrains-mono-2" rel="stylesheet">
+  <link rel="icon" type="image/png" href="../logo.png">
+</head>
+<body>
+
+<!-- ============ HEADER ============ -->
+<header class="header">
+  <div class="header-inner">
+    <div class="hamburger" id="hamburger" aria-label="Toggle menu">
+      <span></span><span></span><span></span>
+    </div>
+    <a href="../index.html" class="logo">
+      <img src="../logo.png" alt="Tagwise" class="logo-icon-img" width="28" height="28">
+      <span class="logo-text">Tagwise</span>
+      <div class="logo-divider"></div>
+      <span class="logo-sub">Docs</span>
+    </a>    
+    <nav class="top-tabs" id="topTabs" role="tablist">
+      <button class="top-tab active" data-tab="welcome" role="tab" tabindex="0">Welcome</button>
+      <button class="top-tab" data-tab="getting-started" role="tab" tabindex="0">Getting Started</button>
+      <button class="top-tab" data-tab="features" role="tab" tabindex="0">Features</button>
+      <button class="top-tab" data-tab="pricing" role="tab" tabindex="0">Pricing</button>
+    </nav>
+    <div class="header-right">
+      <button class="search-trigger" id="searchTrigger">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+        <span>Search docs...</span>
+        <span class="search-shortcut" id="searchShortcut">⌘K</span>
+      </button>
+      <a href="https://tagwise.xyz" target="_blank" rel="noopener noreferrer" class="header-link">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+        <span>tagwise.xyz</span>
+      </a>
+    </div>
+  </div>
+</header>
+
+<!-- ============ SEARCH OVERLAY ============ -->
+<div class="search-overlay" id="searchOverlay">
+  <div class="search-modal">
+    <div class="search-input-wrapper">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+      <input type="text" class="search-input" id="searchInput" placeholder="Search documentation..." autocomplete="off">
+      <span class="search-esc">ESC</span>
+    </div>
+    <div class="search-results" id="searchResults"></div>
+  </div>
+</div>
+
+<!-- ============ SIDEBAR OVERLAY (mobile) ============ -->
+<div class="sidebar-overlay" id="sidebarOverlay"></div>
+
+<!-- ============ LAYOUT ============ -->
+<div class="layout">
+
+  <!-- === SIDEBAR === -->
+  <aside class="sidebar" id="sidebar">
+    <!-- Mobile tabs -->
+    <div class="mobile-tabs" id="mobileTabs">
+      <div class="mobile-tab active" data-tab="welcome">Welcome</div>
+      <div class="mobile-tab" data-tab="getting-started">Getting Started</div>
+      <div class="mobile-tab" data-tab="features">Features</div>
+      <div class="mobile-tab" data-tab="pricing">Pricing</div>
+    </div>
+    <div id="sidebarContent"></div>
+  </aside>
+
+  <!-- === MAIN === -->
+  <main class="main">
+    <div class="content-wrapper">
+
+      <!-- ============================== -->
+      <!-- TAB: WELCOME                   -->
+      <!-- ============================== -->
+
+      <!-- PAGE: OVERVIEW -->
+      <article class="page" id="page-overview" data-tab="welcome">
+        <div class="page-header">
+          <h1>Welcome to Tagwise</h1>
+          <p class="subtitle">The Telegram bot that tracks top Polymarket traders and lets you copy their moves automatically.</p>
+        </div>
+        <div class="content">
+          <h2 id="what-is-tagwise">What is Tagwise?</h2>
+          <p>Tagwise is a <strong>Telegram bot</strong> that gives you a direct edge on <a href="https://polymarket.com" target="_blank" rel="noopener noreferrer">Polymarket</a> — the world's largest prediction market. It monitors top traders in real time, sends you instant alerts when they make moves, and lets you copy their trades with one tap.</p>
+          <p>Whether you're tracking political markets, sports events, crypto predictions, or tech outcomes, Tagwise surfaces the <strong>smartest money</strong> so you can trade with conviction.</p>
+
+          <h2 id="how-it-works">How It Works</h2>
+          <p>Tagwise runs three services behind the scenes to keep you ahead of the market:</p>
+          <ul>
+            <li><strong>Bot Service</strong> — handles all your Telegram interactions: commands, menus, alerts, and copy trading.</li>
+            <li><strong>Worker Service</strong> — polls tracked wallets for new trades every 30 seconds, then pushes real-time alerts to your chat.</li>
+            <li><strong>Leaderboard Service</strong> — refreshes top trader rankings every 6 hours across all categories and time periods.</li>
+          </ul>
+          <p>You interact with everything through Telegram — no extra apps, no browser extensions, no dashboards to check.</p>
+
+          <h2 id="key-features">Key Features</h2>
+          <div class="quick-links">
+            <div class="quick-link" onclick="navigateTo('wallet-tracking')">
+              <div class="quick-link-icon">📡</div>
+              <div class="quick-link-title">Wallet Tracking</div>
+              <div class="quick-link-desc">Track any Polymarket wallet and get real-time alerts on trades.</div>
+            </div>
+            <div class="quick-link" onclick="navigateTo('leaderboard')">
+              <div class="quick-link-icon">🏆</div>
+              <div class="quick-link-title">Leaderboard</div>
+              <div class="quick-link-desc">Browse top traders by category and time period.</div>
+            </div>
+            <div class="quick-link" onclick="navigateTo('copy-trading')">
+              <div class="quick-link-icon">⚡</div>
+              <div class="quick-link-title">Copy Trading</div>
+              <div class="quick-link-desc">Automatically mirror trades from wallets you trust.</div>
+            </div>
+            <div class="quick-link" onclick="navigateTo('wallet-analytics')">
+              <div class="quick-link-icon">📊</div>
+              <div class="quick-link-title">Wallet Analytics</div>
+              <div class="quick-link-desc">View PnL, ROI, win rate, and open positions for any wallet.</div>
+            </div>
+            <div class="quick-link" onclick="navigateTo('multi-buy-alerts')">
+              <div class="quick-link-icon">🔔</div>
+              <div class="quick-link-title">Multi-Buy Alerts</div>
+              <div class="quick-link-desc">Get notified when multiple wallets converge on the same side.</div>
+            </div>
+            <div class="quick-link" onclick="navigateTo('confidence-scoring')">
+              <div class="quick-link-icon">🎯</div>
+              <div class="quick-link-title">Confidence Scoring</div>
+              <div class="quick-link-desc">AI-scored trader confidence based on historical performance.</div>
+            </div>
+          </div>
+
+          <h2 id="quick-start">Quick Start</h2>
+          <div class="steps">
+            <div class="step">
+              <div class="step-content">
+                <h4>Open Tagwise on Telegram</h4>
+                <p>Search for <code>@TagwiseBot</code> on Telegram or go directly to <a href="https://t.me/TagwiseBot" target="_blank" rel="noopener noreferrer">t.me/TagwiseBot</a>. Tap <strong>Start</strong> to create your account.</p>
+              </div>
+            </div>
+            <div class="step">
+              <div class="step-content">
+                <h4>Track a wallet or pick from the leaderboard</h4>
+                <p>Use <code>/track</code> to follow a specific wallet address, or browse <code>/toptraders</code> to find proven traders.</p>
+              </div>
+            </div>
+            <div class="step">
+              <div class="step-content">
+                <h4>Get alerts and copy trades</h4>
+                <p>When a tracked wallet trades, you'll get an instant alert with all the details. Enable copy trading to automatically mirror their positions.</p>
+              </div>
+            </div>
+          </div>
+
+          <div class="callout info">
+            <div class="callout-icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>
+            </div>
+            <div class="callout-content">
+              <div class="callout-title">Free to start</div>
+              <div class="callout-body">Tagwise's free tier includes 3 custom wallet tracks, 5 leaderboard traders, copy trading, and basic trade alerts. Upgrade to PRO for advanced features like multi-buy alerts and confidence scoring.</div>
+            </div>
+          </div>
+        </div>
+      </article>
+
+      <!-- PAGE: SECURITY -->
+      <article class="page" id="page-security" data-tab="welcome">
+        <div class="page-header">
+          <h1>Security</h1>
+          <p class="subtitle">How Tagwise protects your data and funds.</p>
+        </div>
+        <div class="content">
+          <h2 id="non-custodial-design">Non-Custodial Design</h2>
+          <p>Tagwise is built with a <strong>non-custodial architecture</strong>. This means the bot never holds or controls your funds directly. When you create a trading wallet through Tagwise, the private key is encrypted and stored securely — it's never accessible in plaintext to anyone, including the Tagwise team.</p>
+          <p>All trades are executed on-chain through the <strong>Polymarket Builder API</strong>, meaning every transaction is verifiable and transparent on the blockchain.</p>
+
+          <h2 id="wallet-encryption">Wallet Custody via Privy</h2>
+          <p>Trading wallets created through Tagwise are secured using <strong><a href="https://privy.io" target="_blank" rel="noopener noreferrer">Privy</a></strong>, a non-custodial embedded wallet infrastructure provider. Here's how it works:</p>
+          <ul>
+              <li><strong>Key Generation</strong> — when you create a trading wallet, a new Ethereum-compatible keypair is generated and stored inside Privy's <strong>Trusted Execution Environment (TEE)</strong> — a hardware-isolated secure enclave.</li>
+              <li><strong>Zero-Access Storage</strong> — your private key never leaves the TEE in plaintext. Neither Tagwise nor Privy's own servers can read it directly.</li>
+              <li><strong>Signing on Demand</strong> — when a trade needs to be executed, the signing request is sent to Privy's TEE. Only the resulting cryptographic signature is returned — the key itself stays inside the enclave.</li>
+          </ul>          
+
+          <div class="callout warning">
+            <div class="callout-icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+            </div>
+            <div class="callout-content">
+              <div class="callout-title">Important</div>
+              <div class="callout-body">Your trading wallet is separate from your personal Polymarket account. Only deposit the amount you want to use for copy trading. Never deposit more than you're comfortable risking.</div>
+            </div>
+          </div>
+
+          <h2 id="data-privacy">Data Privacy</h2>
+          <p>Tagwise stores the minimum data needed to operate:</p>
+          <ul>
+            <li><strong>Telegram user ID</strong> — to route alerts and manage your account.</li>
+            <li><strong>Tracked wallet addresses</strong> — public on-chain addresses (not private keys of wallets you track).</li>
+            <li><strong>Trading wallet</strong> — encrypted keypair for copy trading (only if you create one).</li>
+            <li><strong>Subscription status</strong> — to manage free/PRO tier access.</li>
+          </ul>
+          <p>Tagwise does <strong>not</strong> collect your name, email, phone number, or any personal information beyond your Telegram user ID.</p>
+
+          <h2 id="payment-security">Payment Security</h2>
+          <p>All payments are processed through <strong>NOWPayments</strong>, a third-party crypto payment processor. Tagwise never handles payment data directly. NOWPayments supports various cryptocurrencies and handles all transaction verification.</p>
+          <p>When you subscribe to PRO, NOWPayments generates a payment address, you send crypto, and once confirmed on-chain, your PRO status is activated automatically.</p>          
+
+          <div class="callout tip">
+            <div class="callout-icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2 2 6.477 2 12s4.477 10 10 10z"/><path d="m9 12 2 2 4-4"/></svg>
+            </div>
+            <div class="callout-content">
+              <div class="callout-title">Tip</div>
+              <div class="callout-body">You can check your subscription status anytime with the <code>/account</code> command. It shows your current plan, expiry date, and wallet limits.</div>
+            </div>
+          </div>
+        </div>
+      </article>
+
+      <!-- ============================== -->
+      <!-- TAB: GETTING STARTED           -->
+      <!-- ============================== -->
+
+      <!-- PAGE: SETTING UP -->
+      <article class="page" id="page-setting-up" data-tab="getting-started">
+        <div class="page-header">
+          <h1>Setting Up</h1>
+          <p class="subtitle">Get Tagwise running in under a minute.</p>
+        </div>
+        <div class="content">
+          <h2 id="find-the-bot">Find the Bot</h2>
+          <p>Tagwise lives entirely inside Telegram. To get started:</p>
+          <div class="steps">
+            <div class="step">
+              <div class="step-content">
+                <h4>Open Telegram</h4>
+                <p>Use the Telegram app on your phone or desktop. Tagwise works on both.</p>
+              </div>
+            </div>
+            <div class="step">
+              <div class="step-content">
+                <h4>Search for @TagwiseBot</h4>
+                <p>In the Telegram search bar, type <code>@TagwiseBot</code> and select the bot from the results. You can also go directly to <a href="https://t.me/TagwiseBot" target="_blank" rel="noopener noreferrer">t.me/TagwiseBot</a>.</p>
+              </div>
+            </div>
+            <div class="step">
+              <div class="step-content">
+                <h4>Tap Start</h4>
+                <p>Press the <strong>Start</strong> button or type <code>/start</code>. This creates your Tagwise account and opens the main menu.</p>
+              </div>
+            </div>
+          </div>
+
+          <h2 id="account-creation">Account Creation</h2>
+          <p>When you first interact with Tagwise, your account is created automatically using your Telegram user ID. There's no signup form, no email required, no password to remember.</p>
+          <p>Your account starts on the <strong>Free tier</strong> which includes:</p>
+          <ul>
+            <li>Track up to <strong>3 custom wallets</strong></li>
+            <li>Follow up to <strong>5 leaderboard traders</strong></li>
+            <li><strong>Copy trading</strong> functionality</li>
+            <li><strong>Basic trade alerts</strong> for tracked wallets</li>
+          </ul>
+
+          <h2 id="main-dashboard">Main Dashboard</h2>
+          <p>After starting the bot, use <code>/start</code> to access the main menu. From here you can:</p>
+          <ul>
+            <li>Browse the leaderboard</li>
+            <li>Manage tracked wallets</li>
+            <li>View your trading wallet</li>
+            <li>Check account status and subscription</li>
+            <li>Access copy trading settings</li>
+          </ul>
+
+          <div class="callout info">
+            <div class="callout-icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>
+            </div>
+            <div class="callout-content">
+              <div class="callout-title">Navigation Tip</div>
+              <div class="callout-body">You can always type <code>/help</code> to see a full list of available commands, or <code>/start</code> to return to the main menu.</div>
+            </div>
+          </div>
+        </div>
+      </article>
+
+      <!-- PAGE: YOUR FIRST TRADE -->
+      <article class="page" id="page-first-trade" data-tab="getting-started">
+        <div class="page-header">
+          <h1>Your First Trade</h1>
+          <p class="subtitle">Follow along to go from zero to your first copy trade.</p>
+        </div>
+        <div class="content">
+          <h2 id="step-by-step">Step by Step</h2>
+          <p>Here's the complete flow from opening the bot to executing your first copy trade:</p>
+
+          <div class="steps">
+            <div class="step">
+              <div class="step-content">
+                <h4>Browse the Leaderboard</h4>
+                <p>Type <code>/toptraders</code> to open the leaderboard. Select a category (e.g., <strong>Politics</strong>, <strong>Crypto</strong>) and a time period (<strong>Daily</strong>, <strong>Weekly</strong>, <strong>Monthly</strong>, or <strong>All-Time</strong>). You'll see a ranked list of the top-performing wallets with key stats.</p>
+              </div>
+            </div>
+            <div class="step">
+              <div class="step-content">
+                <h4>Track a Top Trader</h4>
+                <p>Tap on a trader from the leaderboard to view their full stats — PnL, ROI, win rate, and recent trades. Hit the <strong>Track</strong> button to start following their wallet. You'll now receive alerts whenever they make a trade.</p>
+              </div>
+            </div>
+            <div class="step">
+              <div class="step-content">
+                <h4>Create Your Trading Wallet</h4>
+                <p>Use <code>/wallet</code> to create your on-chain trading wallet. Tagwise will generate a new wallet and show you the address. Send USDC to this address — this is the balance you'll trade with.</p>
+              </div>
+            </div>
+            <div class="step">
+              <div class="step-content">
+                <h4>Wait for an Alert</h4>
+                <p>When a tracked wallet makes a trade, you'll receive an instant Telegram notification with the market name, the side they're buying (Yes/No), the amount, and the current price.</p>
+              </div>
+            </div>
+            <div class="step">
+              <div class="step-content">
+                <h4>Copy the Trade</h4>
+                <p>Each alert includes a <strong>Copy Trade</strong> button. Tap it to mirror the exact position. Or, enable <strong>auto copy</strong> with <code>/copy</code> to have all trades from a specific wallet copied automatically at your chosen position size.</p>
+              </div>
+            </div>
+          </div>
+
+          <div class="callout warning">
+            <div class="callout-icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+            </div>
+            <div class="callout-content">
+              <div class="callout-title">Risk Warning</div>
+              <div class="callout-body">Copy trading involves risk. Past performance of tracked wallets does not guarantee future results. Only trade with funds you can afford to lose. Start with small position sizes to get familiar with how copy trading works.</div>
+            </div>
+          </div>
+
+          <h2 id="understanding-alerts">Understanding Alerts</h2>
+          <p>Trade alerts include the following information:</p>
+          <ul>
+            <li><strong>Wallet</strong> — the tracked wallet that made the trade (with a short address label).</li>
+            <li><strong>Market</strong> — the Polymarket event being traded (e.g., "Will Bitcoin hit $100k by March 2026?").</li>
+            <li><strong>Side</strong> — whether they bought <strong>Yes</strong> or <strong>No</strong>.</li>
+            <li><strong>Amount</strong> — the USDC value of their position.</li>
+            <li><strong>Price</strong> — the entry price (e.g., $0.67 per share).</li>
+            <li><strong>Action buttons</strong> — Copy Trade, View Wallet Stats, Untrack.</li>
+          </ul>
+
+          <h2 id="auto-vs-manual">Auto vs. Manual Copy</h2>
+          <p>Tagwise supports two copy trading modes:</p>
+          <div class="table-wrapper">
+            <table>
+              <thead>
+                <tr>
+                  <th>Mode</th>
+                  <th>How It Works</th>
+                  <th>Best For</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><strong>Manual Copy</strong></td>
+                  <td>Get an alert → tap "Copy Trade" → confirm</td>
+                  <td>Selective traders who want to review each trade</td>
+                </tr>
+                <tr>
+                  <td><strong>Auto Copy</strong></td>
+                  <td>Trades are mirrored automatically at your set position size</td>
+                  <td>Hands-off traders who trust a wallet's strategy</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </article>
+
+      <!-- ============================== -->
+      <!-- TAB: FEATURES                  -->
+      <!-- ============================== -->
+
+      <!-- PAGE: WALLET TRACKING -->
+      <article class="page" id="page-wallet-tracking" data-tab="features">
+        <div class="page-header">
+          <h1>Wallet Tracking</h1>
+          <p class="subtitle">Follow any Polymarket wallet and get real-time trade alerts.</p>
+        </div>
+        <div class="content">
+          <h2 id="tracking-by-address">Tracking by Address</h2>
+          <p>You can track any public Polymarket wallet using its on-chain address. Use the <code>/track</code> command followed by the wallet address:</p>
+          <pre><code>/track 0x1234...abcd</code></pre>
+          <p>Once tracked, Tagwise's worker service polls the wallet every <strong>30 seconds</strong> for new activity. When a trade is detected, you receive an instant Telegram alert.</p>
+
+          <h2 id="tracking-from-leaderboard">Tracking from the Leaderboard</h2>
+          <p>The easier way to find wallets worth tracking is through the leaderboard. Use <code>/toptraders</code>, browse by category and time period, and tap <strong>Track</strong> on any wallet you like. The address is handled for you automatically.</p>
+
+          <h2 id="managing-tracked-wallets">Managing Tracked Wallets</h2>
+          <p>View all your currently tracked wallets with:</p>
+          <pre><code>/wallets</code></pre>
+          <p>This shows each tracked wallet with a label (auto-generated from the address), its last activity, and quick action buttons.</p>
+          <p>To stop tracking a wallet:</p>
+          <pre><code>/untrack 0x1234...abcd</code></pre>
+
+          <h2 id="tracking-limits">Tracking Limits</h2>
+          <div class="table-wrapper">
+            <table>
+              <thead>
+                <tr>
+                  <th>Tier</th>
+                  <th>Custom Wallets</th>
+                  <th>Leaderboard Traders</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><strong>Free</strong></td>
+                  <td>3</td>
+                  <td>5</td>
+                </tr>
+                <tr>
+                  <td><strong>PRO</strong></td>
+                  <td>100</td>
+                  <td>50</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div class="callout tip">
+            <div class="callout-icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2 2 6.477 2 12s4.477 10 10 10z"/><path d="m9 12 2 2 4-4"/></svg>
+            </div>
+            <div class="callout-content">
+              <div class="callout-title">Tip</div>
+              <div class="callout-body">Custom wallets are ones you track manually by address. Leaderboard traders are tracked directly from the <code>/toptraders</code> interface. They count toward separate limits.</div>
+            </div>
+          </div>
+        </div>
+      </article>
+
+      <!-- PAGE: LEADERBOARD -->
+      <article class="page" id="page-leaderboard" data-tab="features">
+        <div class="page-header">
+          <h1>Leaderboard</h1>
+          <p class="subtitle">Discover the most profitable Polymarket traders, updated every 6 hours.</p>
+        </div>
+        <div class="content">
+          <h2 id="browsing-the-leaderboard">Browsing the Leaderboard</h2>
+          <p>The leaderboard is your gateway to finding proven traders. Access it with:</p>
+          <pre><code>/toptraders</code></pre>
+          <p>You'll see an interactive menu where you can filter by <strong>category</strong> and <strong>time period</strong>. The leaderboard data is refreshed every 6 hours to ensure rankings reflect current performance.</p>
+
+          <h2 id="categories">Categories</h2>
+          <p>Traders are ranked within the categories that match Polymarket's major market types:</p>
+          <ul>
+            <li><strong>Politics</strong> — elections, policy, governance markets</li>
+            <li><strong>Sports</strong> — game outcomes, championships, player performance</li>
+            <li><strong>Crypto</strong> — token prices, protocol events, DeFi predictions</li>
+            <li><strong>Tech</strong> — product launches, company milestones, AI benchmarks</li>
+            <li><strong>Culture</strong> — entertainment, media, cultural events</li>
+            <li><strong>Finance</strong> — rates, indices, economic indicators</li>
+          </ul>
+
+          <h2 id="time-periods">Time Periods</h2>
+          <p>Each category can be filtered by time period to surface different trading styles:</p>
+          <div class="table-wrapper">
+            <table>
+              <thead>
+                <tr>
+                  <th>Period</th>
+                  <th>Shows</th>
+                  <th>Best For</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><strong>Daily</strong></td>
+                  <td>Top performers in the last 24h</td>
+                  <td>Finding hot hands and momentum traders</td>
+                </tr>
+                <tr>
+                  <td><strong>Weekly</strong></td>
+                  <td>Top performers in the last 7 days</td>
+                  <td>Balanced between recency and consistency</td>
+                </tr>
+                <tr>
+                  <td><strong>Monthly</strong></td>
+                  <td>Top performers in the last 30 days</td>
+                  <td>Identifying sustained edge</td>
+                </tr>
+                <tr>
+                  <td><strong>All-Time</strong></td>
+                  <td>Best lifetime performance</td>
+                  <td>Finding long-term proven traders</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h2 id="leaderboard-stats">Stats Shown</h2>
+          <p>For each trader on the leaderboard, you'll see:</p>
+          <ul>
+            <li><strong>PnL</strong> — total profit and loss in USDC</li>
+            <li><strong>ROI</strong> — return on investment as a percentage</li>
+            <li><strong>Win Rate</strong> — percentage of trades that were profitable</li>
+            <li><strong>Volume</strong> — total trading volume in USDC</li>
+            <li><strong>Number of Trades</strong> — total trades in the period</li>
+          </ul>
+
+          <div class="callout info">
+            <div class="callout-icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>
+            </div>
+            <div class="callout-content">
+              <div class="callout-title">PRO Feature</div>
+              <div class="callout-body">PRO users get access to advanced leaderboard filters — filter by minimum PnL, minimum win rate, or minimum number of trades to narrow down the very best.</div>
+            </div>
+          </div>
+        </div>
+      </article>
+
+      <!-- PAGE: COPY TRADING -->
+      <article class="page" id="page-copy-trading" data-tab="features">
+        <div class="page-header">
+          <h1>Copy Trading</h1>
+          <p class="subtitle">Automatically mirror trades from wallets you trust.</p>
+        </div>
+        <div class="content">
+          <h2 id="creating-trading-wallet">Creating a Trading Wallet</h2>
+          <p>Before you can copy trade, you need to create an on-chain trading wallet. This is a dedicated wallet managed by Tagwise for executing trades on your behalf.</p>
+          <pre><code>/wallet</code></pre>
+          <p>This generates a new Ethereum-compatible wallet, encrypts the private key with Fernet encryption, and displays your wallet address. Send <strong>USDC</strong> to this address to fund your trading balance.</p>
+
+          <div class="callout warning">
+            <div class="callout-icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+            </div>
+            <div class="callout-content">
+              <div class="callout-title">Only deposit what you're willing to risk</div>
+              <div class="callout-body">Your trading wallet is separate from your personal wallets. Only send the amount you intend to use for copy trading. All trades carry risk.</div>
+            </div>
+          </div>
+
+          <h2 id="how-copy-trading-works">How Copy Trading Works</h2>
+          <p>When you copy a trade, here's what happens under the hood:</p>
+          <ol>
+            <li>Tagwise detects a new trade from a tracked wallet.</li>
+            <li>If auto-copy is enabled for that wallet, the bot prepares an identical order.</li>
+            <li>The order is submitted through the <strong>Polymarket Builder API</strong>, which handles on-chain execution.</li>
+            <li>Your trading wallet's private key is decrypted momentarily to sign the transaction, then immediately discarded from memory.</li>
+            <li>You receive a confirmation alert with the trade details and your updated balance.</li>
+          </ol>
+
+          <h2 id="setting-position-sizes">Setting Position Sizes</h2>
+          <p>You control how much to allocate per copied trade. Use the <code>/copy</code> command to configure:</p>
+          <ul>
+            <li><strong>Fixed amount</strong> — set a flat USDC amount per trade (e.g., $10 per copy).</li>
+            <li><strong>Proportional</strong> — mirror the same percentage of your balance as the trader uses.</li>
+          </ul>
+          <pre><code>/copy 0x1234...abcd 10</code></pre>
+          <p>This enables auto-copy on the specified wallet with a $10 position size per trade.</p>
+
+          <h2 id="copy-trading-commands">Related Commands</h2>
+          <div class="table-wrapper">
+            <table>
+              <thead>
+                <tr>
+                  <th>Command</th>
+                  <th>Description</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>/wallet</code></td>
+                  <td>View or create your trading wallet</td>
+                </tr>
+                <tr>
+                  <td><code>/copy</code></td>
+                  <td>Enable/configure auto-copy for a wallet</td>
+                </tr>
+                <tr>
+                  <td><code>/wallets</code></td>
+                  <td>List all tracked wallets with copy trading status</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </article>
+
+      <!-- PAGE: WALLET ANALYTICS -->
+      <article class="page" id="page-wallet-analytics" data-tab="features">
+        <div class="page-header">
+          <h1>Wallet Analytics</h1>
+          <p class="subtitle">Deep dive into any Polymarket wallet's performance.</p>
+        </div>
+        <div class="content">
+          <h2 id="viewing-wallet-stats">Viewing Wallet Stats</h2>
+          <p>Get a comprehensive performance breakdown for any wallet using the <code>/stats</code> command:</p>
+          <pre><code>/stats 0x1234...abcd</code></pre>
+          <p>This shows a detailed analytics view including all key performance metrics.</p>
+
+          <h2 id="metrics-explained">Metrics Explained</h2>
+          <div class="table-wrapper">
+            <table>
+              <thead>
+                <tr>
+                  <th>Metric</th>
+                  <th>Description</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><strong>PnL</strong></td>
+                  <td>Total profit and loss in USDC across all resolved positions</td>
+                </tr>
+                <tr>
+                  <td><strong>ROI</strong></td>
+                  <td>Return on investment — PnL divided by total capital deployed</td>
+                </tr>
+                <tr>
+                  <td><strong>Win Rate</strong></td>
+                  <td>Percentage of positions that resolved profitably</td>
+                </tr>
+                <tr>
+                  <td><strong>Volume</strong></td>
+                  <td>Total USDC value of all trades executed</td>
+                </tr>
+                <tr>
+                  <td><strong>Open Positions</strong></td>
+                  <td>Current active positions with market name, side, size, and entry price</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h2 id="open-positions">Open Positions</h2>
+          <p>The stats view includes a list of the wallet's currently open positions. For each position, you'll see:</p>
+          <ul>
+            <li>The <strong>market name</strong> (e.g., "Will ETH hit $5k by July 2026?")</li>
+            <li>The <strong>side</strong> — Yes or No</li>
+            <li>The <strong>position size</strong> in USDC</li>
+            <li>The <strong>entry price</strong> per share</li>
+            <li>The <strong>current price</strong> and unrealized PnL</li>
+          </ul>
+
+          <div class="callout tip">
+            <div class="callout-icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2 2 6.477 2 12s4.477 10 10 10z"/><path d="m9 12 2 2 4-4"/></svg>
+            </div>
+            <div class="callout-content">
+              <div class="callout-title">Tip</div>
+              <div class="callout-body">Use wallet analytics to vet traders before enabling auto-copy. A high PnL with a low win rate might indicate a high-risk strategy with large bets.</div>
+            </div>
+          </div>
+        </div>
+      </article>
+
+      <!-- PAGE: MULTI-BUY ALERTS -->
+      <article class="page" id="page-multi-buy-alerts" data-tab="features">
+        <div class="page-header">
+          <h1>Multi-Buy Alerts <span class="pro-badge">PRO</span></h1>
+          <p class="subtitle">Detect when multiple tracked wallets converge on the same trade.</p>
+        </div>
+        <div class="content">
+          <h2 id="what-are-multi-buy-alerts">What Are Multi-Buy Alerts?</h2>
+          <p>Multi-buy alerts fire when <strong>multiple tracked wallets</strong> buy the same side of the same market within a short time window. This is one of the most powerful signals Tagwise offers — when several independent top traders converge on the same position, it often indicates strong conviction.</p>
+
+          <h2 id="how-detection-works">How Detection Works</h2>
+          <p>Tagwise's worker service continuously monitors all tracked wallets. When it detects that two or more wallets have taken the same side on a market, it triggers a multi-buy alert. The alert includes:</p>
+          <ul>
+            <li><strong>Market name</strong> — which event they're trading</li>
+            <li><strong>Side</strong> — Yes or No</li>
+            <li><strong>Number of wallets</strong> — how many tracked wallets are on the same side</li>
+            <li><strong>Wallet list</strong> — which specific wallets made the trades</li>
+            <li><strong>Time window</strong> — how quickly they converged</li>
+          </ul>
+
+          <h2 id="signal-strength">Signal Strength</h2>
+          <p>Multi-buy alerts are labeled by signal strength based on the number of converging wallets:</p>
+          <div class="table-wrapper">
+            <table>
+              <thead>
+                <tr>
+                  <th>Wallets</th>
+                  <th>Signal</th>
+                  <th>Description</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>2</td>
+                  <td><strong>Moderate</strong></td>
+                  <td>Two wallets agree — worth noting</td>
+                </tr>
+                <tr>
+                  <td>3-4</td>
+                  <td><strong>Strong</strong></td>
+                  <td>Clear consensus forming among multiple traders</td>
+                </tr>
+                <tr>
+                  <td>5+</td>
+                  <td><strong>Very Strong</strong></td>
+                  <td>Rare convergence — high conviction signal</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h2 id="consensus-signals">Consensus</h2>
+          <p>The real power of multi-buy alerts is <strong>consensus detection</strong>. When unrelated top traders independently reach the same conclusion, it's a meaningful signal that goes beyond any single trader's edge.</p>
+
+          <div class="callout info">
+            <div class="callout-icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>
+            </div>
+            <div class="callout-content">
+              <div class="callout-title">PRO Only</div>
+              <div class="callout-body">Multi-buy alerts are exclusive to PRO subscribers. On the Free tier, you'll still receive individual trade alerts for tracked wallets.</div>
+            </div>
+          </div>
+        </div>
+      </article>
+
+      <!-- PAGE: CONFIDENCE SCORING -->
+      <article class="page" id="page-confidence-scoring" data-tab="features">
+        <div class="page-header">
+          <h1>Confidence Scoring <span class="pro-badge">PRO</span></h1>
+          <p class="subtitle">AI-powered scoring of trade quality based on trader history.</p>
+        </div>
+        <div class="content">
+          <h2 id="how-scoring-works">How Scoring Works</h2>
+          <p>Every trade alert from a tracked wallet includes a <strong>confidence score</strong> — a 0-100 rating that reflects how likely the trade is to be profitable based on the trader's historical performance in similar markets.</p>
+          <p>The score is calculated using several factors:</p>
+          <ul>
+            <li><strong>Historical win rate</strong> — the trader's overall success rate on resolved positions.</li>
+            <li><strong>Category performance</strong> — how well the trader performs in this specific market category (e.g., Politics vs. Sports).</li>
+            <li><strong>Position sizing</strong> — larger positions relative to the trader's typical size suggest higher conviction.</li>
+            <li><strong>Recency</strong> — recent performance is weighted more heavily than old results.</li>
+            <li><strong>Volume context</strong> — traders with more history get more reliable scores.</li>
+          </ul>
+
+          <h2 id="score-ranges">Score Ranges</h2>
+          <div class="table-wrapper">
+            <table>
+              <thead>
+                <tr>
+                  <th>Score</th>
+                  <th>Label</th>
+                  <th>Meaning</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>80-100</td>
+                  <td><strong>High Confidence</strong></td>
+                  <td>Strong historical edge in this type of market</td>
+                </tr>
+                <tr>
+                  <td>60-79</td>
+                  <td><strong>Medium Confidence</strong></td>
+                  <td>Decent track record, moderate expected edge</td>
+                </tr>
+                <tr>
+                  <td>40-59</td>
+                  <td><strong>Low Confidence</strong></td>
+                  <td>Limited history or mixed results in this category</td>
+                </tr>
+                <tr>
+                  <td>0-39</td>
+                  <td><strong>Very Low</strong></td>
+                  <td>New trader or poor category performance</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h2 id="filtering-by-score">Filtering by Score</h2>
+          <p>PRO users can set a <strong>minimum confidence threshold</strong> for auto-copy. For example, you can configure auto-copy to only execute when the confidence score is above 70 — skipping low-conviction trades automatically.</p>
+          <p>This is especially useful when tracking many wallets at once. Rather than copying every trade, you let the confidence scoring system filter for the highest-quality signals.</p>
+
+          <div class="callout tip">
+            <div class="callout-icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2 2 6.477 2 12s4.477 10 10 10z"/><path d="m9 12 2 2 4-4"/></svg>
+            </div>
+            <div class="callout-content">
+              <div class="callout-title">Recommended Strategy</div>
+              <div class="callout-body">Start with a confidence threshold of 70+ and lower it if you're not getting enough trades. Combine with multi-buy alerts for the strongest possible signals.</div>
+            </div>
+          </div>
+        </div>
+      </article>
+
+      <!-- PAGE: REFERRAL SYSTEM -->
+      <article class="page" id="page-referral-system" data-tab="features">
+        <div class="page-header">
+          <h1>Referral System</h1>
+          <p class="subtitle">Earn free PRO time by inviting others to Tagwise.</p>
+        </div>
+        <div class="content">
+          <h2 id="how-referrals-work">How Referrals Work</h2>
+          <p>Tagwise has a simple, mutually beneficial referral system. When you invite someone to Tagwise using your unique referral link:</p>
+          <ul>
+            <li><strong>Your referee</strong> gets a <strong>3-day PRO trial</strong> — they can experience all PRO features immediately.</li>
+            <li><strong>You (the referrer)</strong> earn <strong>7 days of free PRO</strong> when your referee converts to a paid PRO subscription.</li>
+          </ul>
+
+          <h2 id="getting-your-link">Getting Your Referral Link</h2>
+          <p>Generate your unique referral link with:</p>
+          <pre><code>/referral</code></pre>
+          <p>This returns a shareable link in the format <code>https://t.me/TagwiseBot?start=ref_YOURCODE</code>. Share it in chats, social media, or anywhere else.</p>
+
+          <h2 id="referral-rewards">Reward Details</h2>
+          <div class="table-wrapper">
+            <table>
+              <thead>
+                <tr>
+                  <th>Event</th>
+                  <th>Who Benefits</th>
+                  <th>Reward</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>Referee signs up via link</td>
+                  <td>Referee</td>
+                  <td>3-day PRO trial</td>
+                </tr>
+                <tr>
+                  <td>Referee subscribes to PRO</td>
+                  <td>Referrer</td>
+                  <td>7 days free PRO</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div class="callout info">
+            <div class="callout-icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>
+            </div>
+            <div class="callout-content">
+              <div class="callout-title">No limit on referrals</div>
+              <div class="callout-body">There's no cap on how many people you can refer. Each successful conversion adds 7 days to your PRO subscription. Refer enough people and you'll never pay for PRO.</div>
+            </div>
+          </div>
+        </div>
+      </article>
+
+      <!-- PAGE: COMMAND REFERENCE -->
+      <article class="page" id="page-command-reference" data-tab="features">
+        <div class="page-header">
+          <h1>Command Reference</h1>
+          <p class="subtitle">Every Tagwise command at a glance.</p>
+        </div>
+        <div class="content">
+          <h2 id="all-commands">All Commands</h2>
+          <div class="table-wrapper">
+            <table>
+              <thead>
+                <tr>
+                  <th>Command</th>
+                  <th>Description</th>
+                  <th>Example</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>/start</code></td>
+                  <td>Initialize the bot and create your account</td>
+                  <td><code>/start</code></td>
+                </tr>
+                <tr>
+                  <td><code>/start</code></td>
+                  <td>Open the main menu with all features</td>
+                  <td><code>/start</code></td>
+                </tr>
+                <tr>
+                  <td><code>/toptraders</code></td>
+                  <td>Browse the leaderboard by category and time period</td>
+                  <td><code>/toptraders</code></td>
+                </tr>
+                <tr>
+                  <td><code>/track</code></td>
+                  <td>Track a wallet by its on-chain address</td>
+                  <td><code>/track 0x1a2b...3c4d</code></td>
+                </tr>
+                <tr>
+                  <td><code>/wallets</code></td>
+                  <td>List all wallets you're currently tracking</td>
+                  <td><code>/wallets</code></td>
+                </tr>
+                <tr>
+                  <td><code>/untrack</code></td>
+                  <td>Stop tracking a wallet</td>
+                  <td><code>/untrack 0x1a2b...3c4d</code></td>
+                </tr>
+                <tr>
+                  <td><code>/stats</code></td>
+                  <td>View detailed analytics for a wallet</td>
+                  <td><code>/stats 0x1a2b...3c4d</code></td>
+                </tr>
+                <tr>
+                  <td><code>/wallet</code></td>
+                  <td>View or create your trading wallet</td>
+                  <td><code>/wallet</code></td>
+                </tr>
+                <tr>
+                  <td><code>/copy</code></td>
+                  <td>Enable auto-copy trading on a wallet</td>
+                  <td><code>/copy 0x1a2b...3c4d 10</code></td>
+                </tr>
+                <tr>
+                  <td><code>/account</code></td>
+                  <td>View your account info, plan, and usage</td>
+                  <td><code>/account</code></td>
+                </tr>
+                <tr>
+                  <td><code>/upgrade</code></td>
+                  <td>Subscribe to PRO or manage subscription</td>
+                  <td><code>/upgrade</code></td>
+                </tr>
+                <tr>
+                  <td><code>/referral</code></td>
+                  <td>Get your unique referral link</td>
+                  <td><code>/referral</code></td>
+                </tr>
+                <tr>
+                  <td><code>/help</code></td>
+                  <td>Show all available commands with descriptions</td>
+                  <td><code>/help</code></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h2 id="command-tips">Tips</h2>
+          <ul>
+            <li>Commands are <strong>case-insensitive</strong> — <code>/Track</code> works the same as <code>/track</code>.</li>
+            <li>Most commands that require a wallet address will also work with a <strong>partial address</strong> if you've already tracked the wallet.</li>
+            <li>Use <code>/start</code> as your home base — it has inline buttons for all major actions.</li>
+            <li>If you get stuck, <code>/help</code> always has your back.</li>
+          </ul>
+        </div>
+      </article>
+
+      <!-- ============================== -->
+      <!-- TAB: PRICING                   -->
+      <!-- ============================== -->
+
+      <!-- PAGE: FREE VS PRO -->
+      <article class="page" id="page-free-vs-pro" data-tab="pricing">
+        <div class="page-header">
+          <h1>Free vs. PRO</h1>
+          <p class="subtitle">Compare what's included in each plan.</p>
+        </div>
+        <div class="content">
+          <h2 id="plan-comparison">Plan Comparison</h2>
+          <div class="table-wrapper">
+            <table>
+              <thead>
+                <tr>
+                  <th>Feature</th>
+                  <th>Free</th>
+                  <th>PRO</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>Custom wallet tracking</td>
+                  <td>3 wallets</td>
+                  <td>100 wallets</td>
+                </tr>
+                <tr>
+                  <td>Leaderboard tracking</td>
+                  <td>5 traders</td>
+                  <td>50 traders</td>
+                </tr>
+                <tr>
+                  <td>Copy trading</td>
+                  <td><span class="check">✓</span></td>
+                  <td><span class="check">✓</span></td>
+                </tr>
+                <tr>
+                  <td>Basic trade alerts</td>
+                  <td><span class="check">✓</span></td>
+                  <td><span class="check">✓</span></td>
+                </tr>
+                <tr>
+                  <td>Wallet analytics</td>
+                  <td><span class="check">✓</span></td>
+                  <td><span class="check">✓</span></td>
+                </tr>
+                <tr>
+                  <td>Leaderboard browsing</td>
+                  <td><span class="check">✓</span></td>
+                  <td><span class="check">✓</span></td>
+                </tr>
+                <tr>
+                  <td>Multi-buy alerts</td>
+                  <td><span class="cross">—</span></td>
+                  <td><span class="check">✓</span></td>
+                </tr>
+                <tr>
+                  <td>Confidence scoring</td>
+                  <td><span class="cross">—</span></td>
+                  <td><span class="check">✓</span></td>
+                </tr>
+                <tr>
+                  <td>Advanced leaderboard filters</td>
+                  <td><span class="cross">—</span></td>
+                  <td><span class="check">✓</span></td>
+                </tr>
+                <tr>
+                  <td>Priority support</td>
+                  <td><span class="cross">—</span></td>
+                  <td><span class="check">✓</span></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h2 id="who-needs-pro">Who Needs PRO?</h2>
+          <p>The Free tier is solid for casual traders who want to track a few wallets and copy trades manually. Consider upgrading to PRO if:</p>
+          <ul>
+            <li>You want to track <strong>more wallets</strong> to diversify your signal sources.</li>
+            <li>You want <strong>multi-buy alerts</strong> to identify consensus plays.</li>
+            <li>You want <strong>confidence scoring</strong> to filter for the highest-quality trades.</li>
+            <li>You're running a <strong>serious copy trading strategy</strong> and need advanced filters.</li>
+          </ul>
+
+          <div class="callout tip">
+            <div class="callout-icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2 2 6.477 2 12s4.477 10 10 10z"/><path d="m9 12 2 2 4-4"/></svg>
+            </div>
+            <div class="callout-content">
+              <div class="callout-title">Try PRO for free</div>
+              <div class="callout-body">Ask a friend with Tagwise for their referral link — you'll get a 3-day PRO trial to test all features before committing.</div>
+            </div>
+          </div>
+        </div>
+      </article>
+
+      <!-- PAGE: PAYMENT -->
+      <article class="page" id="page-payment" data-tab="pricing">
+        <div class="page-header">
+          <h1>Payment</h1>
+          <p class="subtitle">How to subscribe to PRO with crypto.</p>
+        </div>
+        <div class="content">
+          <h2 id="pricing-plans">Pricing</h2>
+          <div class="table-wrapper">
+            <table>
+              <thead>
+                <tr>
+                  <th>Plan</th>
+                  <th>Price</th>
+                  <th>Savings</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><strong>Monthly</strong></td>
+                  <td>$29/month</td>
+                  <td>—</td>
+                </tr>
+                <tr>
+                  <td><strong>Yearly</strong></td>
+                  <td>$199/year</td>
+                  <td>Save ~43% vs. monthly</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h2 id="how-to-subscribe">How to Subscribe</h2>
+          <div class="steps">
+            <div class="step">
+              <div class="step-content">
+                <h4>Start the upgrade</h4>
+                <p>Type <code>/upgrade</code> in the bot. Select either <strong>Monthly</strong> or <strong>Yearly</strong>.</p>
+              </div>
+            </div>
+            <div class="step">
+              <div class="step-content">
+                <h4>Complete payment</h4>
+                <p>Tagwise uses <strong>NOWPayments</strong> for crypto payments. You'll receive a unique payment address. Send the exact amount in the supported cryptocurrency to that address.</p>
+            </div>            
+            </div>
+            <div class="step">
+              <div class="step-content">
+                <h4>Activation</h4>
+                <p>Once the transaction is confirmed on-chain, your PRO subscription activates instantly. You'll receive a confirmation message with your new plan details and expiry date.</p>
+              </div>
+            </div>
+          </div>
+
+          <h2 id="supported-payments">Payment via NOWPayments</h2>
+          <p><a href="https://nowpayments.io" target="_blank" rel="noopener noreferrer">NOWPayments</a> is a third-party crypto payment processor that handles all subscription transactions. Tagwise never touches your payment funds directly.</p>
+          <p>NOWPayments supports multiple cryptocurrencies and chains. The exact options available will be shown during the checkout flow.</p>          
+
+          <h2 id="managing-subscription">Managing Your Subscription</h2>
+          <p>Check your current subscription status anytime:</p>
+          <pre><code>/account</code></pre>
+          <p>This shows your current plan, expiry date, wallet limits, and usage stats. When your subscription is about to expire, you'll receive a reminder to renew.</p>
+
+          <div class="callout info">
+            <div class="callout-icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>
+            </div>
+            <div class="callout-content">
+              <div class="callout-title">Expiry behavior</div>
+              <div class="callout-body">When your PRO subscription expires, your account reverts to the Free tier. You won't lose your tracked wallets, but tracking beyond the Free limits will be paused until you renew or remove excess wallets.</div>
+            </div>
+          </div>
+        </div>
+      </article>
+
+    </div><!-- /content-wrapper -->
+
+    <!-- === TABLE OF CONTENTS (right sidebar) === -->
+    <nav class="toc" id="toc">
+      <div class="toc-title">On This Page</div>
+      <div id="tocLinks"></div>
+    </nav>
+
+  </main>
+</div>
+
+<!-- ============ FOOTER (inside content-wrapper) ============ -->
+
+<script>
+  // OS-aware keyboard shortcut label
+  if (!/Mac|iPhone|iPad|iPod/.test(navigator.platform || navigator.userAgent)) {
+    var el = document.getElementById('searchShortcut');
+    if (el) el.textContent = 'Ctrl+K';
+  }
+</script>
+<script src="./app.js"></script>
+</body>
+</html>

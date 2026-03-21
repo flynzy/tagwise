@@ -1,0 +1,101 @@
+# docker-compose.local.yml
+version: '3.8'
+
+services:
+  # Local PostgreSQL
+  postgres:
+    image: postgres:15-alpine
+    container_name: tagwise-db
+    environment:
+      POSTGRES_USER: tagwise
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-localpassword}
+      POSTGRES_DB: tagwise
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U tagwise"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # Local Redis
+  redis:
+    image: redis:7-alpine
+    container_name: tagwise-redis
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  bot:
+    build: .
+    container_name: tagwise-bot
+    command: python -m bot.main
+    environment:
+      # Local services
+      DATABASE_URL: postgresql://tagwise:${DB_PASSWORD:-localpassword}@postgres:5432/tagwise
+      REDIS_URL: redis://redis:6379/0
+      
+      # Telegram
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN}
+      ADMIN_USER_IDS: ${ADMIN_USER_IDS}
+      
+      # Polymarket
+      PRIVATE_KEY: ${PRIVATE_KEY}
+      POLYMARKET_BUILDER_API_KEY: ${POLYMARKET_BUILDER_API_KEY}
+      POLYMARKET_BUILDER_SECRET: ${POLYMARKET_BUILDER_SECRET}
+      POLYMARKET_BUILDER_PASSPHRASE: ${POLYMARKET_BUILDER_PASSPHRASE}
+      
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  worker:
+    build: .
+    container_name: tagwise-worker
+    command: python -m worker.trade_checker
+    environment:
+      DATABASE_URL: postgresql://tagwise:${DB_PASSWORD:-localpassword}@postgres:5432/tagwise
+      REDIS_URL: redis://redis:6379/0
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN}
+      POLYMARKET_BUILDER_API_KEY: ${POLYMARKET_BUILDER_API_KEY}
+      POLYMARKET_BUILDER_SECRET: ${POLYMARKET_BUILDER_SECRET}
+      POLYMARKET_BUILDER_PASSPHRASE: ${POLYMARKET_BUILDER_PASSPHRASE}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  leaderboard-worker:
+    build: .
+    container_name: tagwise-leaderboard
+    command: python -m worker.leaderboard_refresh
+    environment:
+      DATABASE_URL: postgresql://tagwise:${DB_PASSWORD:-localpassword}@postgres:5432/tagwise
+      REDIS_URL: redis://redis:6379/0
+      POLYMARKET_BUILDER_API_KEY: ${POLYMARKET_BUILDER_API_KEY}
+      POLYMARKET_BUILDER_SECRET: ${POLYMARKET_BUILDER_SECRET}
+      POLYMARKET_BUILDER_PASSPHRASE: ${POLYMARKET_BUILDER_PASSPHRASE}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+  redis_data:

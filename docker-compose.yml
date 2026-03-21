@@ -1,0 +1,104 @@
+version: '3.8'
+
+services:
+  # ===================
+  # Main Telegram Bot
+  # ===================
+  bot:
+    build: .
+    container_name: tagwise-bot
+    command: python main.py
+    environment:
+      # Database & Cache (AWS)
+      DATABASE_URL: ${DATABASE_URL}
+      REDIS_URL: ${REDIS_URL}
+      
+      # Telegram
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN}
+      ADMIN_USER_IDS: ${ADMIN_USER_IDS}
+      
+      # Webhook (for production, Telegram)
+      WEBHOOK_URL: ${WEBHOOK_URL:-}
+      WEBHOOK_PORT: ${WEBHOOK_PORT:-8080}
+
+      # NOWPayments webhook
+      NOWPAYMENTS_WEBHOOK_PORT: ${NOWPAYMENTS_WEBHOOK_PORT:-8081}
+      
+      # Polymarket
+      PRIVATE_KEY: ${PRIVATE_KEY}
+      POLYMARKET_PROXY_ADDRESS: ${POLYMARKET_PROXY_ADDRESS}
+      POLYMARKET_BUILDER_API_KEY: ${POLYMARKET_BUILDER_API_KEY}
+      POLYMARKET_BUILDER_SECRET: ${POLYMARKET_BUILDER_SECRET}
+      POLYMARKET_BUILDER_PASSPHRASE: ${POLYMARKET_BUILDER_PASSPHRASE}
+      POLYGON_RPC: ${POLYGON_RPC:-https://polygon-rpc.com}
+      
+      # NOWPayments credentials
+      NOWPAYMENTS_API_KEY: ${NOWPAYMENTS_API_KEY}
+      NOWPAYMENTS_IPN_SECRET: ${NOWPAYMENTS_IPN_SECRET}
+      
+      # Features
+      PRO_ENABLED: ${PRO_ENABLED:-true}
+      CONFIDENCE_SCORE_ENABLED: ${CONFIDENCE_SCORE_ENABLED:-true}
+    ports:
+      - "8080:8080"   # Telegram webhook (PTB)
+      - "8081:8081"   # NOWPayments webhook (WebhookService)
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+
+  # ===================
+  # Trade Checker Worker
+  # ===================
+  worker:
+    build: .
+    # container_name: tagwise-worker
+    command: python -m worker.trade_checker
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      REDIS_URL: ${REDIS_URL}
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN}
+      
+      # Polymarket (needed for trade checking)
+      POLYMARKET_BUILDER_API_KEY: ${POLYMARKET_BUILDER_API_KEY}
+      POLYMARKET_BUILDER_SECRET: ${POLYMARKET_BUILDER_SECRET}
+      POLYMARKET_BUILDER_PASSPHRASE: ${POLYMARKET_BUILDER_PASSPHRASE}
+      POLYGON_RPC: ${POLYGON_RPC:-https://polygon-rpc.com}
+      
+      # Worker settings
+      TRADE_CHECK_INTERVAL: ${TRADE_CHECK_INTERVAL:-60}
+      MIN_TRADE_VALUE: ${MIN_TRADE_VALUE:-100}
+    restart: unless-stopped
+    deploy:
+      replicas: 2
+      resources:
+        limits:
+          cpus: '0.25'
+          memory: 256M
+
+  # ===================
+  # Leaderboard Refresh Worker
+  # ===================
+  leaderboard-worker:
+    build: .
+    #container_name: tagwise-leaderboard
+    command: python -m worker.leaderboard_refresh
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      REDIS_URL: ${REDIS_URL}
+      
+      # Polymarket (needed for fetching leaderboard)
+      POLYMARKET_BUILDER_API_KEY: ${POLYMARKET_BUILDER_API_KEY}
+      POLYMARKET_BUILDER_SECRET: ${POLYMARKET_BUILDER_SECRET}
+      POLYMARKET_BUILDER_PASSPHRASE: ${POLYMARKET_BUILDER_PASSPHRASE}
+      
+      # Worker settings
+      LEADERBOARD_REFRESH_INTERVAL: ${LEADERBOARD_REFRESH_INTERVAL:-21600}
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '0.25'
+          memory: 256M
