@@ -16,10 +16,16 @@ def format_wallet_stats(wallet_address: str, stats: dict, custom_name: str = Non
     roi_emoji = "🟢" if roi >= 0 else "🔴"
     roi_str = f"{roi_emoji} {roi:+.2f}%"
     
-    # Format PnL
+    # Format PnL (split realized / unrealized)
     pnl = stats.get('pnl_all_time', 0)
+    realized_pnl = stats.get('realized_pnl', 0)
+    open_pnl = stats.get('open_pnl', 0)
     pnl_emoji = "🟢" if pnl >= 0 else "🔴"
     pnl_str = f"{pnl_emoji} ${pnl:+,.2f}"
+    realized_emoji = "🟢" if realized_pnl >= 0 else "🔴"
+    realized_str = f"{realized_emoji} ${realized_pnl:+,.2f}"
+    unrealized_emoji = "🟢" if open_pnl >= 0 else "🔴"
+    unrealized_str = f"{unrealized_emoji} ${open_pnl:+,.2f}"
     
     # Format win rate
     win_rate = stats.get('win_rate')
@@ -47,12 +53,14 @@ def format_wallet_stats(wallet_address: str, stats: dict, custom_name: str = Non
 `{wallet_address}`
 
 **Wallet Performance:**
-• ROI (30d): {roi_str} 
-• PnL: {pnl_str}
+• ROI (All-Time): {roi_str}
+• Total PnL: {pnl_str}
+  ├ Realized: {realized_str}
+  └ Unrealized: {unrealized_str}
 • Win Rate: {win_rate_str}
 
 **Activity:**
-• 7-Day Volume: {volume_str}
+• 7d Trading Vol: {volume_str}
 • Total Trades: {trades_display}
 • Total Positions: {total_positions:,}"""
 

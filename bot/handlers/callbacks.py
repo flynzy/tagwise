@@ -192,35 +192,7 @@ class CallbackHandlers:
             )
             return
         
-        await self.db.update_leaderboard_wallets(traders)
-        
-        # Get current wallet count BEFORE adding
-        currently_tracked = await self.db.get_tracked_wallets(user_id)
-        initial_count = len(currently_tracked)
-        
-        # Try to add each trader
-        new_count = 0
-        
-        for trader in traders:
-            address = trader.get('address', '').lower()
-            if not address:
-                continue
-            
-            # Returns True if newly added, False if already existed
-            success = await self.db.add_tracked_wallet(
-                user_id=user_id,
-                wallet_address=address,
-                wallet_type=WalletType.TAGWISE.value,
-                leaderboard_info=trader
-            )
-            
-            if success:
-                new_count += 1
-        
-        await self.db.set_leaderboard_subscription(user_id, True)
-        
-        # Calculate total: previous count + newly added
-        total_tracked = initial_count + new_count
+        new_count, total_tracked = await self.db.track_leaderboard_top(user_id, traders)
         
         # Build trader list with better name formatting
         trader_list = []

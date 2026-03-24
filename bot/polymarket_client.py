@@ -179,18 +179,21 @@ class PolymarketClient:
             all_activity = []
         
         # ===== Calculate All-Time PnL =====
+        # Open positions have both cashPnl (unrealized on current size) and
+        # realizedPnl (from partial sells). Both must be counted.
         total_pnl = 0.0
         open_pnl = 0.0
         closed_pnl = 0.0
-        
+
         for pos in open_positions:
             try:
                 cash_pnl = float(pos.get('cashPnl', 0) or 0)
-                open_pnl += cash_pnl
-                total_pnl += cash_pnl
+                realized_on_open = float(pos.get('realizedPnl', 0) or 0)
+                open_pnl += cash_pnl + realized_on_open
+                total_pnl += cash_pnl + realized_on_open
             except (ValueError, TypeError):
                 continue
-        
+
         for pos in closed_positions:
             try:
                 realized_pnl = float(pos.get('realizedPnl', 0) or 0)
@@ -198,53 +201,59 @@ class PolymarketClient:
                 total_pnl += realized_pnl
             except (ValueError, TypeError):
                 continue
-        
-        # ===== Calculate Win Rate =====
-        winning_positions = 0
-        losing_positions = 0
-        
-        # Closed positions: count by realizedPnl
+
+        # ===== Calculate Win Rate (grouped by market) =====
+        # Group positions by conditionId so the same market isn't double-counted.
+        # Aggregate PnL per market, then count wins/losses.
+        market_pnl = {}  # conditionId -> total pnl
+
         for pos in closed_positions:
             try:
+                cid = pos.get('conditionId', pos.get('asset', ''))
                 realized_pnl = float(pos.get('realizedPnl', 0) or 0)
-                if realized_pnl > 0:
-                    winning_positions += 1
-                elif realized_pnl < 0:
-                    losing_positions += 1
+                market_pnl[cid] = market_pnl.get(cid, 0) + realized_pnl
             except (ValueError, TypeError):
                 continue
-        
-        # Open positions: curPrice=0 means resolved loss, curPrice>=0.99 means resolved win
+
         for pos in open_positions:
             try:
+                cid = pos.get('conditionId', pos.get('asset', ''))
                 cur_price = float(pos.get('curPrice', -1) or -1)
                 initial_value = float(pos.get('initialValue', 0) or 0)
-                
                 if initial_value <= 0:
                     continue
-                
+                # Only count resolved open positions (price hit 0 or ~1)
                 if cur_price == 0:
-                    losing_positions += 1
+                    pnl_val = -initial_value
                 elif cur_price >= 0.99:
-                    winning_positions += 1
+                    cash_pnl = float(pos.get('cashPnl', 0) or 0)
+                    pnl_val = cash_pnl
+                else:
+                    continue  # Still active, skip for win rate
+                market_pnl[cid] = market_pnl.get(cid, 0) + pnl_val
             except (ValueError, TypeError):
                 continue
-        
+
+        winning_positions = sum(1 for pnl in market_pnl.values() if pnl > 0)
+        losing_positions = sum(1 for pnl in market_pnl.values() if pnl < 0)
         total_resolved = winning_positions + losing_positions
         win_rate = (winning_positions / total_resolved) * 100 if total_resolved > 0 else None
-        
+
         # ===== Calculate ROI (All-Time, Position-Based) =====
         total_invested = 0.0
-        
-        # Open positions: use initialValue (already in USD: size * avgPrice)
+
+        # Open positions: totalBought * avgPrice captures the FULL investment
+        # (including portions already sold), which matches the full PnL we computed.
         for pos in open_positions:
             try:
-                initial_value = float(pos.get('initialValue', 0) or 0)
-                total_invested += initial_value
+                total_bought = float(pos.get('totalBought', 0) or 0)
+                avg_price = float(pos.get('avgPrice', 0) or 0)
+                cost_basis = total_bought * avg_price
+                total_invested += cost_basis
             except (ValueError, TypeError):
                 continue
-        
-        # Closed positions: calculate cost basis (totalBought is in SHARES, not USD)
+
+        # Closed positions: same approach
         for pos in closed_positions:
             try:
                 total_bought = float(pos.get('totalBought', 0) or 0)  # shares
@@ -253,7 +262,7 @@ class PolymarketClient:
                 total_invested += cost_basis
             except (ValueError, TypeError):
                 continue
-        
+
         # Calculate all-time ROI
         roi = (total_pnl / total_invested) * 100 if total_invested > 1.0 else 0.0
         

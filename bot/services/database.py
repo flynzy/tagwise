@@ -1316,6 +1316,108 @@ class Database:
                 logger.error(f"Error updating Tagwise wallets: {e}")
                 return 0
 
+    async def track_leaderboard_top(
+        self,
+        user_id: int,
+        traders: List[Dict],
+    ) -> Tuple[int, int]:
+        """Batch-track top leaderboard wallets in a single transaction.
+
+        Returns (new_count, total_tracked).
+        """
+        async with self.get_session() as session:
+            try:
+                addresses = [t.get('address', '').lower() for t in traders if t.get('address')]
+
+                # 1. Ensure user exists
+                stmt = select(UserSubscription).where(UserSubscription.user_id == user_id)
+                result = await session.execute(stmt)
+                user = result.scalars().first()
+                if not user:
+                    user = UserSubscription(user_id=user_id)
+                    session.add(user)
+                    await session.flush()
+
+                # 2. Fetch all wallets for these addresses in one query
+                stmt = select(MonitoredWallet).where(MonitoredWallet.address.in_(addresses))
+                result = await session.execute(stmt)
+                existing_wallets = {w.address: w for w in result.scalars().all()}
+
+                # 3. Fetch all existing trackings for this user+addresses in one query
+                stmt = select(UserWalletTracking).where(
+                    UserWalletTracking.user_id == user_id,
+                    UserWalletTracking.wallet_address.in_(addresses)
+                )
+                result = await session.execute(stmt)
+                existing_trackings = {t.wallet_address: t for t in result.scalars().all()}
+
+                # 4. Upsert wallets and trackings
+                new_count = 0
+                for trader in traders:
+                    address = trader.get('address', '').lower()
+                    if not address:
+                        continue
+
+                    # Upsert wallet
+                    wallet = existing_wallets.get(address)
+                    if not wallet:
+                        wallet = MonitoredWallet(address=address, last_checked=None)
+                        session.add(wallet)
+                        existing_wallets[address] = wallet
+
+                    username = trader.get('username')
+                    if username and len(username) > 40 and '-' in username:
+                        username = None
+                    wallet.name = username or wallet.name
+                    rank_value = trader.get('rank')
+                    if rank_value is not None:
+                        try:
+                            wallet.leaderboard_rank = int(rank_value)
+                        except (ValueError, TypeError):
+                            wallet.leaderboard_rank = None
+                    x_username = trader.get('x_username')
+                    wallet.x_username = x_username if x_username else None
+                    wallet.verified_badge = trader.get('verified', False)
+                    wallet.total_pnl = float(trader.get('pnl', 0) or 0)
+                    wallet.total_volume_7d = float(trader.get('volume', 0) or 0)
+                    wallet.is_leaderboard_wallet = True
+                    wallet.is_active = True
+                    wallet.updated_at = datetime.now(timezone.utc)
+
+                    # Upsert tracking
+                    tracking = existing_trackings.get(address)
+                    if not tracking:
+                        tracking = UserWalletTracking(
+                            user_id=user_id,
+                            wallet_address=address,
+                            wallet_type=WalletType.TAGWISE.value,
+                        )
+                        session.add(tracking)
+                        new_count += 1
+                    else:
+                        tracking.wallet_type = WalletType.TAGWISE.value
+
+                # 5. Set leaderboard subscription flag
+                user.track_leaderboard_wallets = True
+
+                # 6. Single commit
+                await session.commit()
+
+                # 7. Get total tracked count
+                stmt = select(func.count()).select_from(UserWalletTracking).where(
+                    UserWalletTracking.user_id == user_id
+                )
+                result = await session.execute(stmt)
+                total_tracked = result.scalar() or 0
+
+                logger.info(f"✅ User {user_id} batch-tracked {new_count} new wallets ({total_tracked} total)")
+                return new_count, total_tracked
+
+            except Exception as e:
+                await session.rollback()
+                logger.error(f"Error in track_leaderboard_top: {e}", exc_info=True)
+                return 0, 0
+
     async def get_last_check_time(self, wallet_address: str) -> Optional[datetime]:
         """Get the last time a wallet was checked for trades"""
         async with self.get_session() as session:
