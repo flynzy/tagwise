@@ -58,7 +58,6 @@ class TradingCommands:
                 parse_mode='Markdown',
                 reply_markup=InlineKeyboardMarkup(keyboard)
             )
-
     
     async def wallet_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle wallet-related callbacks"""
@@ -67,38 +66,38 @@ class TradingCommands:
         
         user_id = update.effective_user.id
         action = query.data.replace("wallet_", "")
-        
-        
-        if action == "create":
-            await self._create_wallet(query, user_id)
 
-        elif action == "import":
-            # Import wallet flow removed — Privy manages all keys
-            keyboard = [
-                [InlineKeyboardButton("Create Wallet", callback_data="wallet_create")],
-                [InlineKeyboardButton("Main Menu", callback_data="menu_main")],
-            ]
-            await query.edit_message_text(
-                "Wallet import is no longer supported.\n\n"
-                "Create a new wallet instead — your keys are secured by Privy's TEE infrastructure.",
-                reply_markup=InlineKeyboardMarkup(keyboard),
-            )
+        if action in ("create", "import"):
+            # Wallet provisioning is now automatic — just show the wallet page
+            await self.bot.menu_handlers.show_trading_wallet(query, user_id)
 
         elif action == "setup":
-            await self._setup_safe(query, user_id)
-        
-        elif action == "balance" or action == "refresh":
+            # Setup is now automatic — if they somehow hit this, just re-trigger it
+            await query.edit_message_text(
+                "⏳ *Setting up your wallet...*\n\nThis usually takes 30–60 seconds.",
+                parse_mode="Markdown"
+            )
+            asyncio.create_task(self.bot._auto_provision_wallet(user_id))
+            # Show wallet page immediately so they see the loading state
             await self.bot.menu_handlers.show_trading_wallet(query, user_id)
-        
+
+        elif action in ("balance", "refresh"):
+            await query.edit_message_text(
+                "⏳ *Refreshing wallet and syncing balance...*\n\n_Please wait_",
+                parse_mode="Markdown"
+            )
+            result = await self.wallet_manager._activate_trading(user_id)
+            if not result['success']:
+                logger.warning(f"Balance sync failed for user {user_id}: {result.get('error')}")
+            await self.bot.menu_handlers.show_trading_wallet(query, user_id)
+
         elif action == "withdraw":
             result = await self.start_withdraw(query, user_id)
             if result == AWAITING_WITHDRAW_ADDRESS:
                 return AWAITING_WITHDRAW_ADDRESS
 
         elif action == "claim":
-            # New: claim winnings from button
             await self._handle_wallet_claim(query, user_id)
-
         
         elif action == "delete":
             keyboard = [
@@ -150,57 +149,6 @@ class TradingCommands:
                 "Wallet deletion cancelled.",
                 parse_mode='Markdown',
                 reply_markup=InlineKeyboardMarkup(keyboard)  # ✅ ADD THIS
-            )
-
-    async def _create_wallet(self, query, user_id: int):
-        """Create a new wallet via Privy + Safe"""
-        await query.edit_message_text(
-            "Creating your wallet...\n\n"
-            "This may take up to 1 minute. Please wait and do not press any buttons.",
-            parse_mode='Markdown'
-        )
-
-        result = await self.wallet_manager.create_wallet(user_id)
-
-        if result['success']:
-            safe_addr = result.get('safe_address', 'Will be derived')
-
-            # Auto-setup the Safe
-            await query.edit_message_text(
-                "Setting up gasless trading...\n\n"
-                "Almost done, please wait...",
-                parse_mode='Markdown'
-            )
-            setup_result = await self.wallet_manager.setup_safe(user_id)
-
-            await asyncio.sleep(5)
-
-            setup_status = "Ready to trade!" if setup_result['success'] else f"Setup pending: {setup_result.get('error', '')}"
-
-            keyboard = [
-                [InlineKeyboardButton("View Wallet", callback_data="menu_trading_wallet")],
-                [InlineKeyboardButton("Main Menu", callback_data="menu_main")],
-            ]
-
-            await query.edit_message_text(
-                f"**Wallet Created!**\n\n"
-                f"**On-chain Address (EOA):**\n`{result['address']}`\n\n"
-                f"**Polymarket Address (Safe):**\n`{safe_addr}`\n\n"
-                f"Your private key is secured by Privy's TEE infrastructure "
-                f"and never stored on our servers.\n\n"
-                f"**Status:** {setup_status}\n\n"
-                f"**Next:** Send USDC to your Polymarket address to start trading!",
-                parse_mode='Markdown',
-                reply_markup=InlineKeyboardMarkup(keyboard)
-            )
-        else:
-            keyboard = [
-                [InlineKeyboardButton("Try Again", callback_data="wallet_create")],
-                [InlineKeyboardButton("Back to Wallet", callback_data="menu_trading_wallet")],
-            ]
-            await query.edit_message_text(
-                f"Error: {result['error']}",
-                reply_markup=InlineKeyboardMarkup(keyboard)
             )
 
 
@@ -532,9 +480,9 @@ class TradingCommands:
         
         # Enable/Disable button
         if settings.enabled:
-            keyboard.append([InlineKeyboardButton("🔴 Disable Copy Trading", callback_data="copy_disable")])
+            keyboard.append([InlineKeyboardButton("🟢 Disable Copy Trading", callback_data="copy_disable")])
         else:
-            keyboard.append([InlineKeyboardButton("🟢 Enable Copy Trading", callback_data="copy_enable")])
+            keyboard.append([InlineKeyboardButton("🔴 Enable Copy Trading", callback_data="copy_enable")])
 
         # Check if PRO for multi-buy
         is_pro = await self.db.is_pro(user_id)
@@ -542,10 +490,10 @@ class TradingCommands:
         if is_pro:
             if settings.multi_buy_only:
                 # ✅ UPDATED: Better button text
-                keyboard.append([InlineKeyboardButton("🔴 Disable Multi-Buy Mode", callback_data="copy_multibuy_off")])
+                keyboard.append([InlineKeyboardButton("🟢 Disable Multi-Buy Mode", callback_data="copy_multibuy_off")])
             else:
                 # ✅ UPDATED: Better button text with description
-                keyboard.append([InlineKeyboardButton("🟢 Enable Multi-Buy Mode", callback_data="copy_multibuy_on")])
+                keyboard.append([InlineKeyboardButton("🔴 Enable Multi-Buy Mode", callback_data="copy_multibuy_on")])
         else:
             keyboard.append([InlineKeyboardButton("🔥 Multi-Buy Only Mode (PRO)", callback_data="menu_upgrade")])
         

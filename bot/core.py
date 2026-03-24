@@ -363,3 +363,45 @@ class TagwiseBot:
             await self.app.stop()
             await self.app.shutdown()
             await self.shutdown()
+
+
+    async def _auto_provision_wallet(self, user_id: int):
+        try:
+            existing = await self.wallet_manager.get_wallet(user_id)
+
+            if existing:
+                # ADD THIS BLOCK — re-provision legacy wallets with no Privy ID
+                if not existing.get('privy_wallet_id'):
+                    logger.info(f"[auto_provision] Migrating legacy wallet for user {user_id}")
+                    # Delete old record and re-create via Privy
+                    await self.wallet_manager.delete_wallet(user_id)
+                    existing = None  # Fall through to creation below
+
+                else:
+                    # Existing Privy wallet — check setup completeness
+                    safe_address = existing.get('safe_address')
+                    if safe_address:
+                        status = await asyncio.to_thread(
+                            self.wallet_manager.builder.get_safe_status,
+                            existing['address']
+                        )
+                        if not status.get('allowances_set'):
+                            logger.info(f"[auto_provision] Completing setup for user {user_id}")
+                            await self.wallet_manager.setup_safe(user_id)
+                    return
+
+            # No wallet (or just deleted legacy one) — create fresh via Privy
+            logger.info(f"[auto_provision] Creating wallet for user {user_id}")
+            result = await self.wallet_manager.create_wallet(user_id)
+            if not result['success']:
+                logger.warning(f"[auto_provision] Wallet creation failed for {user_id}: {result.get('error')}")
+                return
+
+            setup = await self.wallet_manager.setup_safe(user_id)
+            if not setup['success']:
+                logger.warning(f"[auto_provision] Setup failed for {user_id}: {setup.get('error')}")
+            else:
+                logger.info(f"[auto_provision] ✅ Wallet fully provisioned for user {user_id}")
+
+        except Exception as e:
+            logger.error(f"[auto_provision] Error for user {user_id}: {e}", exc_info=True)

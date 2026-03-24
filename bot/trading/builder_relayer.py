@@ -13,7 +13,7 @@ from web3 import Web3
 logger = logging.getLogger(__name__)
 
 # Contract addresses on Polygon
-USDC_ADDRESS = "0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174"
+USDC_ADDRESS = "0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359"
 NEG_RISK_CTF_EXCHANGE = "0xC5d563A36AE78145C45a50134d48A1215220f80a"
 
 RELAYER_URL = "https://relayer-v2.polymarket.com/"

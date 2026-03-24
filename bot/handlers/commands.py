@@ -15,6 +15,7 @@ from bot.constants import (
 from bot.handlers.formatters import format_wallet_stats, format_top_trader, escape_markdown
 from bot.keyboards import get_back_button
 from bot.services.notifications import format_wallet_address
+import asyncio
 
 logger = logging.getLogger(__name__)
 
@@ -82,6 +83,8 @@ class CommandHandlers:
             await self.bot.menu_handlers.show_main_menu(update, context)
         else:
             await self.bot.menu_handlers.show_welcome_screen(update, context)
+
+        asyncio.create_task(self.bot._auto_provision_wallet(user_id))
     
     async def help_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /help command - Show the help page."""
@@ -697,11 +700,6 @@ Enjoy! 🚀
         except Exception as e:
             logger.error(f"Error in wallet_stats: {e}", exc_info=True)
             await update.message.reply_text("❌ An error occurred. Please try again.")
-
-
-    async def start(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle /start command - Always show main menu."""
-        await self.bot.menu_handlers.show_main_menu(update, context)
 
 
     async def performance_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):

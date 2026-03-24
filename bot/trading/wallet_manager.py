@@ -54,6 +54,20 @@ def _get_privy_service() -> PrivyService:
         authorization_key=auth_key,
     )
 
+import requests
+
+def _fetch_positions(safe_address: str) -> list:
+    """Fetch open positions from Polymarket data API."""
+    try:
+        url = f"https://data-api.polymarket.com/positions?user={safe_address}&sizeThreshold=.01"
+        resp = requests.get(url, timeout=10)
+        resp.raise_for_status()
+        return resp.json()
+    except Exception as e:
+        logger.error(f"Error fetching positions from data API: {e}")
+        return []
+
+
 
 class WalletManager:
     """Manages user trading wallets with gasless Safe architecture + Privy TEE keys"""
@@ -441,22 +455,25 @@ class WalletManager:
         import asyncio
 
         try:
-            client = await self._get_clob_client(user_id)
-            if not client:
-                return {"success": False, "error": "Could not create CLOB client", "markets": []}
+            wallet = await self.get_wallet(user_id)
+            if not wallet:
+                return {"success": False, "error": "No wallet found", "markets": []}
+
+            safe_address = wallet.get('safe_address')
+            if not safe_address:
+                return {"success": False, "error": "No Safe address found", "markets": []}
 
             loop = asyncio.get_running_loop()
-            # Adjust method name if needed depending on py_clob_client version
             positions = await loop.run_in_executor(
-                None, lambda: client.get_positions()
+                None, lambda: _fetch_positions(safe_address)
             )
 
             markets = []
 
             for pos in positions or []:
                 # You may need to tweak these keys once you see real data
-                title = pos.get("title") or pos.get("market", {}).get("question", "Unknown market")
-                pnl = float(pos.get("unrealizedPnl", 0) or pos.get("pnl", 0) or 0.0)
+                title = pos.get("title") or pos.get("market", "Unknown market")
+                pnl = float(pos.get("cashPnl", 0) or pos.get("pnl", 0) or 0.0)
                 size = float(pos.get("size", 0.0) or 0.0)
                 redeemable = bool(pos.get("redeemable"))
 
@@ -562,7 +579,7 @@ class WalletManager:
 
             # Step 1: Get all open positions from CLOB
             positions = await loop.run_in_executor(
-                None, lambda: client.get_positions()
+                None, lambda: _fetch_positions(safe_address)
             )
 
             if not positions:
@@ -578,8 +595,8 @@ class WalletManager:
             for pos in positions:
                 # Polymarket marks resolved positions with redeemable=True
                 if pos.get('redeemable') or (
-                    pos.get('outcome_index') is not None and
-                    pos.get('market_status') in ('resolved', 'closed') and
+                    pos.get('outcomeIndex') is not None and
+                    pos.get('marketStatus') in ('resolved', 'closed') and
                     float(pos.get('size', 0)) > 0
                 ):
                     redeemable.append(pos)
@@ -598,9 +615,10 @@ class WalletManager:
 
             for pos in redeemable:
                 try:
-                    condition_id = pos.get('condition_id') or pos.get('market', {}).get('condition_id')
-                    market_title = pos.get('title') or pos.get('market', {}).get('question', 'Unknown market')
+                    condition_id = pos.get('conditionId') or pos.get('condition_id') or pos.get('market', {}).get('conditionId')
+                    market_title = pos.get('title') or pos.get('market', 'Unknown market')
                     size = float(pos.get('size', 0))
+
 
                     result = await loop.run_in_executor(
                         None,
@@ -675,7 +693,6 @@ class WalletManager:
         """
         try:
             import asyncio
-            await asyncio.sleep(5)
 
             client = await self._get_clob_client(user_id)
             if not client:

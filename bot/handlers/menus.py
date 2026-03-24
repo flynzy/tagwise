@@ -203,16 +203,14 @@ Track Polymarket wallets and get notified of their trades.
         wallet = await self.wallet_manager.get_wallet(user_id)
         if not wallet:
             keyboard = [
-                [InlineKeyboardButton("Create New Wallet", callback_data="wallet_create")],
-                [InlineKeyboardButton("Back to Menu", callback_data="menu_main")],
+                [InlineKeyboardButton("🔄 Refresh", callback_data="wallet_refresh")],
+                [InlineKeyboardButton("🔙 Back to Menu", callback_data="menu_main")],
             ]
             text = (
-                "💳 *Trading Wallet Setup*\n\n"
-                "You don't have a trading wallet yet.\n\n"
-                "A trading wallet allows you to:\n"
-                "• Copy trades from top traders\n"
-                "• Execute trades automatically\n\n"
-                "Choose an option:"
+                "💳 *Trading Wallet*\n\n"
+                "⏳ Your wallet is being set up in the background.\n\n"
+                "This usually takes 30–60 seconds on first use.\n"
+                "Press **Refresh** in a moment to check again."
             )
             markup = InlineKeyboardMarkup(keyboard)
             if is_callback:
@@ -227,7 +225,7 @@ Track Polymarket wallets and get notified of their trades.
         balances_task = self.wallet_manager.get_balances(user_id)
         positions_task = (
             self.polymarket.get_open_positions(safe)
-            if safe else asyncio.coroutine(lambda: None)()
+            if safe else asyncio.sleep(0, result=None) 
         )
 
         status, balances, raw_positions = await asyncio.gather(
@@ -253,7 +251,7 @@ Track Polymarket wallets and get notified of their trades.
 
         # Build positions text
         positions_text = "Setup required"
-        if ready and safe != "Not set" and raw_positions:
+        if safe and safe != "Not set" and raw_positions:
             try:
                 positions = raw_positions  # Reuse already-fetched positions
                 if positions and len(positions) > 0:
@@ -295,7 +293,7 @@ Track Polymarket wallets and get notified of their trades.
 
         # ── Markets won (redeemable positions) ──────────────────────
         markets_won_text = ""
-        if ready and safe and safe != "Not set":
+        if safe and safe != "Not set":
             try:
                 won = await self.wallet_manager.get_won_markets(user_id)
                 markets = won.get("markets", []) if won.get("success") else []
@@ -317,12 +315,12 @@ Track Polymarket wallets and get notified of their trades.
 
         message = (
             f"💳 *Your Trading Wallet*\n\n"
-            f"*Send Polygon USDC.e to your Polymarket address to deposit. *\n\n"
+            f"*Send native USDC (Polygon) to your Polymarket address to deposit.*\n\n"
             f"*Polymarket Address:*\n`{safe}`\n\n"
             # f"*On-chain Address:*\n`{eoa}`\n"
             f"*Status:* {status_text}\n\n"
             f"**Balances:**\n"
-            f"• Polymarket USDC.e: ${balances.get('polymarket_usdc', 0):.2f}\n\n"
+            f"• Polymarket USDC.e: ${balances.get('safe_usdc', 0):.2f} USDC\n"
             f"**Positions:** {positions_text}\n\n"
             f"{markets_won_text}"
 
