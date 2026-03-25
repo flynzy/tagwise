@@ -171,16 +171,16 @@ class CommandHandlers:
                     await context.bot.send_message(
                         chat_id=target_user_id,
                         text=f"""
-🎉 **Welcome to Tagwise PRO!**
+ **Welcome to Tagwise PRO! 🎉**
 
 Your {plan_type} subscription has been activated!
 
-✅ **What's unlocked:**
-• 🎯 Confidence scores on every alert
-• 📊 Unlimited wallet tracking  
-• ⭐ Track ALL top traders
-• 🔍 Advanced leaderboard filters
-• 🔊 Multi-buy alerts
+ **What's unlocked:**
+• Confidence scores on every alert 🎯
+• Unlimited wallet tracking 📊 
+• Track ALL top traders ⭐
+• Advanced leaderboard filters 🔍 
+• Multi-buy alerts 🔊
 
 Use /account to view your status.
 Enjoy! 🚀

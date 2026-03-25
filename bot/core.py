@@ -3,8 +3,10 @@
 
 import asyncio
 import logging
+import traceback
 
 from telegram import Update
+from telegram.error import NetworkError, TimedOut, RetryAfter
 from telegram.ext import (
     Application,
     CommandHandler,
@@ -247,6 +249,23 @@ class TagwiseBot:
             filters.TEXT & ~filters.COMMAND,
             cb.handle_text_message
         ))
+
+        # ============ GLOBAL ERROR HANDLER ============
+        self.app.add_error_handler(self._global_error_handler)
+
+    async def _global_error_handler(self, update: object, context) -> None:
+        """Catch-all error handler: log network issues softly, everything else as error."""
+        err = context.error
+        if isinstance(err, (NetworkError, TimedOut)):
+            logger.warning(f"Telegram network error (transient, ignored): {err}")
+            return
+        if isinstance(err, RetryAfter):
+            logger.warning(f"Telegram rate-limited, retry after {err.retry_after}s")
+            return
+        logger.error(
+            "Unhandled exception in update handler:\n%s",
+            "".join(traceback.format_exception(type(err), err, err.__traceback__)),
+        )
     
 
     async def _run_wallet_monitor(self):

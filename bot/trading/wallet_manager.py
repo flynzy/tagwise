@@ -69,6 +69,22 @@ def _fetch_positions(safe_address: str) -> list:
 
 
 
+# Module-level lock: _get_clob_client patches a module-global function
+# (create_level_1_headers) to inject Privy signing. If two coroutines
+# call _get_clob_client concurrently they race on that global — one
+# restores the original while the other is still using the patched version.
+# This lock serialises all calls so the patch/restore is atomic per call.
+_clob_client_lock: "asyncio.Lock | None" = None
+
+def _get_clob_lock() -> "asyncio.Lock":
+    """Return (lazily creating) the module-level asyncio.Lock."""
+    global _clob_client_lock
+    if _clob_client_lock is None:
+        import asyncio as _asyncio
+        _clob_client_lock = _asyncio.Lock()
+    return _clob_client_lock
+
+
 class WalletManager:
     """Manages user trading wallets with gasless Safe architecture + Privy TEE keys"""
 
@@ -148,9 +164,10 @@ class WalletManager:
                 funder=safe_address,
             )
 
-            # Patch create_level_1_headers in the client module's own namespace
+            # Serialise the module-level patch/restore so concurrent callers
+            # don't trample each other's create_level_1_headers replacement.
             import py_clob_client.client as clob_client_mod
-            original_create_level_1 = clob_client_mod.create_level_1_headers
+            lock = _get_clob_lock()
 
             async def _derive_l1_headers():
                 return await create_privy_level_1_headers(
@@ -170,58 +187,34 @@ class WalletManager:
                 else:
                     return asyncio.run(_derive_l1_headers())
 
-            clob_client_mod.create_level_1_headers = privy_create_level_1_headers
-
-            try:
-                api_creds = await self.db.get_user_api_creds(user_id, signature_type=2)
-                if api_creds:
-                    from py_clob_client.clob_types import ApiCreds
-                    creds = ApiCreds(
-                        api_key=api_creds['api_key'],
-                        api_secret=api_creds['api_secret'],
-                        api_passphrase=api_creds['api_passphrase'],
-                    )
-                    client.set_api_creds(creds)
-                else:
-                    creds = client.create_or_derive_api_creds()
-                    client.set_api_creds(creds)
-                    await self.db.save_user_api_creds(user_id, {
-                        'api_key': creds.api_key,
-                        'api_secret': creds.api_secret,
-                        'api_passphrase': creds.api_passphrase,
-                        'signature_type': 2,
-                    })
-                    logger.info(f"Derived new API creds for user {user_id}")
-            finally:
-                # Restore original so other calls aren't affected
-                clob_client_mod.create_level_1_headers = original_create_level_1
-
-
-            original_create_or_derive = client.create_or_derive_api_creds
-
-
-            # Get or derive API credentials
-            api_creds = await self.db.get_user_api_creds(user_id, signature_type=2)
-
-            if api_creds:
-                from py_clob_client.clob_types import ApiCreds
-                creds = ApiCreds(
-                    api_key=api_creds['api_key'],
-                    api_secret=api_creds['api_secret'],
-                    api_passphrase=api_creds['api_passphrase'],
-                )
-                client.set_api_creds(creds)
-            else:
-                creds = client.create_or_derive_api_creds()
-                client.set_api_creds(creds)
-
-                await self.db.save_user_api_creds(user_id, {
-                    'api_key': creds.api_key,
-                    'api_secret': creds.api_secret,
-                    'api_passphrase': creds.api_passphrase,
-                    'signature_type': 2,
-                })
-                logger.info(f"Derived new API creds for user {user_id}")
+            # --- BEGIN critical section ---
+            async with lock:
+                original_create_level_1 = clob_client_mod.create_level_1_headers
+                clob_client_mod.create_level_1_headers = privy_create_level_1_headers
+                try:
+                    api_creds = await self.db.get_user_api_creds(user_id, signature_type=2)
+                    if api_creds:
+                        from py_clob_client.clob_types import ApiCreds
+                        creds = ApiCreds(
+                            api_key=api_creds['api_key'],
+                            api_secret=api_creds['api_secret'],
+                            api_passphrase=api_creds['api_passphrase'],
+                        )
+                        client.set_api_creds(creds)
+                    else:
+                        creds = client.create_or_derive_api_creds()
+                        client.set_api_creds(creds)
+                        await self.db.save_user_api_creds(user_id, {
+                            'api_key': creds.api_key,
+                            'api_secret': creds.api_secret,
+                            'api_passphrase': creds.api_passphrase,
+                            'signature_type': 2,
+                        })
+                        logger.info(f"Derived new API creds for user {user_id}")
+                finally:
+                    # Always restore original so other callers aren't affected
+                    clob_client_mod.create_level_1_headers = original_create_level_1
+            # --- END critical section ---
 
             return client
 

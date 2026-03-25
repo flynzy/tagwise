@@ -6,6 +6,7 @@ Telegram command handlers for gasless wallet and copy trading.
 import logging
 import asyncio
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.error import NetworkError, TimedOut
 from telegram.ext import (
     ContextTypes,
     CommandHandler,
@@ -189,7 +190,7 @@ class TradingCommands:
                 f"✅ **Setup Complete!**\n\n"
                 f"**Polymarket Address:**\n`{result['safe_address']}`\n\n"
                 f"Your wallet is ready for gasless trading!\n\n"
-                f"Send USDC to your Polymarket address to start.",
+                f"Send USDC.e to your Polymarket address to start.",
                 parse_mode='Markdown',
                 reply_markup=InlineKeyboardMarkup(keyboard)  # ✅ ADD THIS
             )
@@ -1298,11 +1299,20 @@ class TradingCommands:
             [InlineKeyboardButton("🤖 Back to Copy Trading", callback_data="copy_main")]
         ]
         
-        await update.message.reply_text(
-            f"✅ **Setting Updated!**\n\nNew value: **{display}**",
-            parse_mode='Markdown',
-            reply_markup=InlineKeyboardMarkup(keyboard)
-        )
+        # The setting is already saved — always end the conversation.
+        # Wrap the reply in try/except so a transient Telegram network error
+        # (httpx.ConnectError → telegram.NetworkError) doesn't crash the handler.
+        try:
+            await update.message.reply_text(
+                f"✅ **Setting Updated!**\n\nNew value: **{display}**",
+                parse_mode='Markdown',
+                reply_markup=InlineKeyboardMarkup(keyboard)
+            )
+        except (NetworkError, TimedOut) as net_err:
+            logger.warning(
+                f"Could not send setting-update confirmation to user {user_id} "
+                f"(network error, setting was saved): {net_err}"
+            )
         
         return ConversationHandler.END
 

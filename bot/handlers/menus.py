@@ -250,7 +250,9 @@ Track Polymarket wallets and get notified of their trades.
         status_text = "Ready to trade ✅" if ready else "⚠️ Setup required"
 
         # Build positions text
-        positions_text = "Setup required"
+        # Default to "No open positions" whenever the safe is configured —
+        # "Setup required" should only appear when we have no safe address at all.
+        positions_text = "Setup required" if not (safe and safe != "Not set") else "No open positions"
         if safe and safe != "Not set" and raw_positions:
             try:
                 positions = raw_positions  # Reuse already-fetched positions
@@ -315,12 +317,12 @@ Track Polymarket wallets and get notified of their trades.
 
         message = (
             f"💳 *Your Trading Wallet*\n\n"
-            f"*Send native USDC (Polygon) to your Polymarket address to deposit.*\n\n"
+            f"*Send native USDC.e (Polygon) to your Polymarket address to deposit.*\n\n"
             f"*Polymarket Address:*\n`{safe}`\n\n"
             # f"*On-chain Address:*\n`{eoa}`\n"
             f"*Status:* {status_text}\n\n"
             f"**Balances:**\n"
-            f"• Polymarket USDC.e: ${balances.get('safe_usdc', 0):.2f} USDC\n"
+            f"• Polymarket USDC.e: ${balances.get('polymarket_usdc', 0):.2f} USDC\n\n"
             f"**Positions:** {positions_text}\n\n"
             f"{markets_won_text}"
 

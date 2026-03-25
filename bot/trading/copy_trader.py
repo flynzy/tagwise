@@ -7,6 +7,7 @@ import asyncio
 import logging
 import os
 import time
+from datetime import datetime, timedelta, timezone
 from typing import Optional, Dict, List
 from enum import Enum
 import math
@@ -274,10 +275,14 @@ class CopyTrader:
         clob_client: ClobClient,
         safe_address: str,
         settings: CopyTradeSettings = None,
+        wallet_manager=None,
+        user_id: int = None,
     ):
         self._client = clob_client
         self.safe_address = safe_address
         self.settings = settings or CopyTradeSettings()
+        self._wallet_manager = wallet_manager
+        self._user_id = user_id
 
         self._balance_cache = None
         self._balance_cache_time = 0
@@ -288,21 +293,38 @@ class CopyTrader:
         return self._client
 
     async def get_balance(self, force_refresh: bool = False) -> float:
-        """Get available USDC cash balance for trading"""
+        """Get available USDC cash balance for trading.
+
+        Delegates to wallet_manager._get_polymarket_balance() when available
+        because that method is already proven to work (it powers the /wallet
+        balance display).  Fallback to direct CLOB call only if no wallet_manager
+        is attached (e.g. in tests).
+        """
         cache_age = time.time() - self._balance_cache_time
 
         if not force_refresh and self._balance_cache is not None and cache_age < 60:
             return self._balance_cache
 
         try:
+            # Preferred path: delegate to the same method used by /wallet display
+            if self._wallet_manager is not None and self._user_id is not None:
+                balance = await self._wallet_manager._get_polymarket_balance(self._user_id)
+                self._balance_cache = balance
+                self._balance_cache_time = time.time()
+                return balance
+
+            # Fallback: direct CLOB call (used in tests / standalone usage)
             params = BalanceAllowanceParams(asset_type=AssetType.COLLATERAL)
             loop = asyncio.get_running_loop()
-            balance_data = await loop.run_in_executor(None, lambda: self.client.get_balance_allowance(params))
-
+            await loop.run_in_executor(
+                None, lambda: self.client.update_balance_allowance(params)
+            )
+            balance_data = await loop.run_in_executor(
+                None, lambda: self.client.get_balance_allowance(params)
+            )
             balance_raw = float(balance_data.get('balance', 0))
             self._balance_cache = balance_raw / 1_000_000
             self._balance_cache_time = time.time()
-
             return self._balance_cache
 
         except Exception as e:
@@ -394,8 +416,9 @@ class CopyTrader:
 
         # Different validation for BUY vs SELL
         if side == 'BUY':
-            # For buys, check available USDC cash
-            balance = await self.get_balance()
+            # For buys, always fetch a fresh balance so recently-deposited USDC
+            # is not blocked by a stale cached value.
+            balance = await self.get_balance(force_refresh=True)
             if balance < 1:
                 return False, f"Insufficient USDC balance (${balance:.2f})"
 
@@ -686,8 +709,8 @@ class CopyTrader:
             else:
                 required_shares = amount
 
-            # Require at least 2x the order size in liquidity for safety
-            required_liquidity = required_shares * 2
+            # Require the order size in available liquidity (1x = enough to fill the order)
+            required_liquidity = required_shares
 
             if total_liquidity < required_liquidity:
                 return {
@@ -775,6 +798,8 @@ class CopyTradeManager:
             clob_client=clob_client,
             safe_address=safe_address,
             settings=settings,
+            wallet_manager=self.wallet_manager,
+            user_id=user_id,
         )
 
         self._traders[user_id] = trader
@@ -944,18 +969,44 @@ class CopyTradeManager:
                     logger.warning(f"   <! Could not create trader for user {user_id}")
                     continue
 
-                # enforce per-user multibuythreshold
+                # Re-check wallet count with this user's own time window setting.
+                # The outer detection always uses hours=1 to decide IF a multibuy
+                # occurred, but each user may have configured a different window
+                # (e.g. 4h, 8h).  We re-query the DB here so the count reflects
+                # their personal window.
+                user_window = trader.settings.multibuywindow
                 user_threshold = trader.settings.multibuythreshold
-                if wallet_count < user_threshold:
+                market_id_for_query = (
+                    trade.get('condition_id')
+                    or trade.get('market_slug')
+                    or trade.get('market_id')
+                )
+                outcome_for_query = trade.get('outcome', '')
+                if market_id_for_query and outcome_for_query and user_window != 1:
+                    window_wallets = await self.db.get_multibuy_wallets(
+                        market_id_for_query, outcome_for_query, hours=user_window
+                    )
+                    effective_wallet_count = len(window_wallets)
                     logger.debug(
-                        f"   Skipping user {user_id}: only {wallet_count} wallets "
-                        f"(threshold: {user_threshold})"
+                        f"   User {user_id}: window={user_window}h → "
+                        f"{effective_wallet_count} wallets (detection found {wallet_count})"
+                    )
+                else:
+                    effective_wallet_count = wallet_count
+
+                if effective_wallet_count < user_threshold:
+                    logger.debug(
+                        f"   Skipping user {user_id}: only {effective_wallet_count} wallets "
+                        f"in {user_window}h window (threshold: {user_threshold})"
                     )
                     results.append({
                         'user_id': user_id,
                         'success': False,
                         'skipped': True,
-                        'reason': f"Only {wallet_count} wallets bought (your threshold: {user_threshold})",
+                        'reason': (
+                            f"Only {effective_wallet_count} wallets bought in your "
+                            f"{user_window}h window (threshold: {user_threshold})"
+                        ),
                         'is_multibuy': True
                     })
                     continue
@@ -1001,11 +1052,11 @@ class CopyTradeManager:
                 results.append(result)
 
                 if result.get('success'):
-                    logger.debug(f"   \u2705 Multi-buy copy succeeded for user {user_id}")
+                    logger.info(f"   ✅ Multi-buy copy succeeded for user {user_id}")
                 elif result.get('skipped'):
-                    logger.debug(f"   Multi-buy copy skipped: {result.get('reason')}")
+                    logger.info(f"   ⏭️ Multi-buy copy skipped for user {user_id}: {result.get('reason')}")
                 else:
-                    logger.warning(f"   Multi-buy copy failed: {result.get('error')}")
+                    logger.warning(f"   ❌ Multi-buy copy failed for user {user_id}: {result.get('error')}")
 
                 await self.db.log_copy_trade(
                     user_id=user_id,
