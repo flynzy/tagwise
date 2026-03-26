@@ -370,7 +370,7 @@ class CopyTrader:
             trade_size = min(trade_size, self.settings.max_trade_size)
 
         # Cap at balance minus small buffer to avoid exact-balance rejections
-        trade_size = min(trade_size, balance - 0.01)
+        trade_size = min(trade_size, balance)
 
         return max(1.0, trade_size) if trade_size >= 1.0 else 0.0
 
