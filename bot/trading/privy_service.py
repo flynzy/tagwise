@@ -48,16 +48,29 @@ class PrivyService:
     """Wraps Privy's PrivyAPI for user/wallet creation and signing."""
 
     def __init__(self, app_id: str, app_secret: str, authorization_key: str = None):
-        from privy import PrivyAPI  # <-- sync client, NOT AsyncPrivyAPI
-
-        self.client = PrivyAPI(
-            app_id=app_id,
-            app_secret=app_secret,
+        self._app_id = app_id
+        self._app_secret = app_secret
+        # Normalise once at construction; stored for reuse in _make_client()
+        self._normalized_key: str | None = (
+            _normalize_privy_auth_key(authorization_key) if authorization_key else None
         )
-        if authorization_key:
-            self.client.update_authorization_key(
-                _normalize_privy_auth_key(authorization_key)
-            )
+        # Long-lived client for non-signing admin operations (users.create, wallets.create, wallets.list)
+        self.client = self._make_client()
+
+    def _make_client(self):
+        """
+        Return a fresh PrivyAPI (httpx.Client) instance.
+
+        The Privy SDK's httpx.Client is NOT thread-safe — it manages connection
+        pools and request-signing state that gets corrupted when two threads call
+        it simultaneously.  By creating a fresh client per signing call we
+        eliminate all shared-state races.
+        """
+        from privy import PrivyAPI
+        client = PrivyAPI(app_id=self._app_id, app_secret=self._app_secret)
+        if self._normalized_key:
+            client.update_authorization_key(self._normalized_key)
+        return client
 
     async def _run_in_thread(self, fn, *args, **kwargs):
         loop = asyncio.get_running_loop()
@@ -99,26 +112,33 @@ class PrivyService:
         }
 
     async def sign_typed_data(self, wallet_id: str, typed_data: dict) -> str:
-        response = await self._run_in_thread(
-            self.client.wallets.rpc,
-            wallet_id=wallet_id,
-            method="eth_signTypedData_v4",
-            params={"typed_data": typed_data},
-        )
-        sig = response.data.signature
-        if not sig.startswith("0x"):
-            sig = "0x" + sig
-        return sig
+        # Use a fresh client per call — the Privy SDK's httpx.Client is not
+        # thread-safe and corrupts its internal state under concurrent signing.
+        def _do():
+            client = self._make_client()
+            response = client.wallets.rpc(
+                wallet_id=wallet_id,
+                method="eth_signTypedData_v4",
+                params={"typed_data": typed_data},
+            )
+            sig = response.data.signature
+            return ("0x" + sig) if not sig.startswith("0x") else sig
+
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(None, _do)
 
     async def personal_sign(self, wallet_id: str, message_hex: str) -> str:
         msg = message_hex[2:] if message_hex.startswith("0x") else message_hex
-        response = await self._run_in_thread(
-            self.client.wallets.rpc,
-            wallet_id=wallet_id,
-            method="personal_sign",
-            params={"message": msg, "encoding": "hex"},
-        )
-        sig = response.data.signature
-        if not sig.startswith("0x"):
-            sig = "0x" + sig
-        return sig
+
+        def _do():
+            client = self._make_client()
+            response = client.wallets.rpc(
+                wallet_id=wallet_id,
+                method="personal_sign",
+                params={"message": msg, "encoding": "hex"},
+            )
+            sig = response.data.signature
+            return ("0x" + sig) if not sig.startswith("0x") else sig
+
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(None, _do)
