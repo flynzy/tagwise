@@ -31,11 +31,16 @@ def _normalize_privy_auth_key(key: str) -> str:
     """
     key = key.strip()
 
+    # Strip all null bytes and non-printable control characters that can
+    # sneak in via .env file editing (BOM, Windows terminal paste, etc.)
+    key = key.replace("\x00", "").replace("\ufeff", "").replace("\r", "")
+
     if key.startswith("wallet-auth:"):
         # Extract the raw base64 payload after the prefix
         b64 = key[len("wallet-auth:"):]
-        # Strip any accidental whitespace / URL-encoded characters
-        b64 = b64.strip().replace("\n", "").replace("\r", "").replace(" ", "")
+        # Keep only valid base64 characters: A-Z a-z 0-9 + / =
+        import re as _re
+        b64 = _re.sub(r"[^A-Za-z0-9+/=]", "", b64)
         # Wrap at 64 chars per line (PEM line length convention)
         wrapped = "\n".join(textwrap.wrap(b64, 64))
         return f"-----BEGIN PRIVATE KEY-----\n{wrapped}\n-----END PRIVATE KEY-----\n"
@@ -69,6 +74,21 @@ class PrivyService:
         from privy import PrivyAPI
         client = PrivyAPI(app_id=self._app_id, app_secret=self._app_secret)
         if self._normalized_key:
+            # Diagnostic: log key metadata so we can detect corruption at runtime
+            key_bytes = self._normalized_key.encode("utf-8")
+            null_positions = [i for i, b in enumerate(key_bytes) if b == 0]
+            if null_positions:
+                logger.error(
+                    f"PRIVY_AUTH_KEY has null bytes at positions {null_positions[:5]} "
+                    f"(key len={len(self._normalized_key)}, bytes len={len(key_bytes)}). "
+                    f"First 60 chars: {repr(self._normalized_key[:60])}"
+                )
+            else:
+                logger.debug(
+                    f"PRIVY_AUTH_KEY normalized OK: len={len(self._normalized_key)}, "
+                    f"starts={repr(self._normalized_key[:40])}, "
+                    f"ends={repr(self._normalized_key[-20:])}"
+                )
             client.update_authorization_key(self._normalized_key)
         return client
 

@@ -39,6 +39,17 @@ services:
       # Features
       PRO_ENABLED: ${PRO_ENABLED:-true}
       CONFIDENCE_SCORE_ENABLED: ${CONFIDENCE_SCORE_ENABLED:-true}
+
+      # Privy wallet infrastructure
+      PRIVY_APP_ID: ${PRIVY_APP_ID}
+      PRIVY_APP_SECRET: ${PRIVY_APP_SECRET}
+      PRIVY_AUTH_KEY: ${PRIVY_AUTH_KEY}
+      PRIVY_QUORUM_ID: ${PRIVY_QUORUM_ID}
+
+      # Other settings
+      WEBSITE_URL: ${WEBSITE_URL:-https://tagwise.xyz}
+      X_URL: ${X_URL:-https://twitter.com/tagwise}
+      WALLET_ENCRYPTION_KEY: ${WALLET_ENCRYPTION_KEY}
     ports:
       - "8080:8080"   # Telegram webhook (PTB)
       - "8081:8081"   # NOWPayments webhook (WebhookService)
