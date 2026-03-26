@@ -38,6 +38,30 @@ from eth_account.messages import encode_defunct
 logger = logging.getLogger(__name__)
 
 
+# ─── Async-in-thread helper ───────────────────────────────────────────────
+
+def _run_async(coro):
+    """
+    Run an async coroutine from a synchronous context — safe whether called
+    from the main asyncio thread (via run_in_executor → worker thread) or
+    from a plain synchronous context.
+
+    Problem: asyncio.get_event_loop() raises RuntimeError in thread-pool
+    worker threads (Python ≥ 3.10) because they have no attached event loop.
+    asyncio.run() is the right tool but it also fails if somehow called from
+    an already-running loop.
+
+    Solution: always create a *brand-new* event loop for the worker thread,
+    run the coroutine to completion, then close it.  This is the pattern
+    recommended by the Python docs for "run async code from a thread."
+    """
+    loop = asyncio.new_event_loop()
+    try:
+        return loop.run_until_complete(coro)
+    finally:
+        loop.close()
+
+
 # ─── EIP-712 Domain Helpers ───────────────────────────────────────────────
 
 def _order_domain(chain_id: int, exchange_address: str) -> dict:
@@ -280,14 +304,7 @@ class PrivyOrderBuilder:
             order_args.expiration,
         )
 
-        loop = asyncio.get_event_loop()
-        if loop.is_running():
-            import concurrent.futures
-            with concurrent.futures.ThreadPoolExecutor() as pool:
-                future = pool.submit(asyncio.run, self._sign_order_via_privy(data, options.neg_risk))
-                return future.result()
-        else:
-            return asyncio.run(self._sign_order_via_privy(data, options.neg_risk))
+        return _run_async(self._sign_order_via_privy(data, options.neg_risk))
 
     def create_market_order(self, order_args: MarketOrderArgs, options: CreateOrderOptions) -> SignedOrder:
         """Create and sign a market order via Privy (sync wrapper for async)."""
@@ -303,14 +320,7 @@ class PrivyOrderBuilder:
             "0",  # market orders have no expiration
         )
 
-        loop = asyncio.get_event_loop()
-        if loop.is_running():
-            import concurrent.futures
-            with concurrent.futures.ThreadPoolExecutor() as pool:
-                future = pool.submit(asyncio.run, self._sign_order_via_privy(data, options.neg_risk))
-                return future.result()
-        else:
-            return asyncio.run(self._sign_order_via_privy(data, options.neg_risk))
+        return _run_async(self._sign_order_via_privy(data, options.neg_risk))
 
     # Expose calculate methods from the original builder (used by ClobClient for market orders)
     def calculate_buy_market_price(self, positions, amount_to_match, order_type):
@@ -433,21 +443,7 @@ class PrivyRelayerSigner:
             },
         }
 
-        loop = asyncio.get_event_loop()
-        if loop.is_running():
-            import concurrent.futures
-            with concurrent.futures.ThreadPoolExecutor() as pool:
-                future = pool.submit(
-                    asyncio.run,
-                    self.privy_service.sign_typed_data(self.wallet_id, typed_data)
-                )
-                return future.result()
-        else:
-            return asyncio.run(
-                self.privy_service.sign_typed_data(self.wallet_id, typed_data)
-            )
-
-
+        return _run_async(self.privy_service.sign_typed_data(self.wallet_id, typed_data))
 
     def sign_eip712_struct_hash(self, struct_hash) -> str:
 
@@ -458,19 +454,4 @@ class PrivyRelayerSigner:
         else:
             hex_msg = "0x" + bytes(struct_hash).hex()
 
-        loop = asyncio.get_event_loop()
-
-        if loop.is_running():
-            import concurrent.futures
-            with concurrent.futures.ThreadPoolExecutor() as pool:
-                future = pool.submit(
-                    asyncio.run,
-                    self.privy_service.personal_sign(self.wallet_id, hex_msg)
-                )
-                result = future.result()
-                return result
-        else:
-            result = asyncio.run(
-                self.privy_service.personal_sign(self.wallet_id, hex_msg)
-            )
-            return result
+        return _run_async(self.privy_service.personal_sign(self.wallet_id, hex_msg))
