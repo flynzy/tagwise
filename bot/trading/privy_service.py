@@ -10,42 +10,35 @@ logger = logging.getLogger(__name__)
 
 def _normalize_privy_auth_key(key: str) -> str:
     """
-    Convert a Privy authorization key to PEM format.
+    Prepare a Privy authorization key for use with update_authorization_key().
 
-    Privy authorization keys are distributed in two formats:
+    The Privy Python SDK's update_authorization_key() handles the
+    "wallet-auth:<base64>" format natively — it does its own internal
+    conversion. DO NOT pre-convert to PEM: if we wrap the payload in
+    PEM headers first, the SDK will double-process the key and corrupt it,
+    causing InvalidByte errors during request signing.
 
-    1. Raw PKCS#8 DER bytes base64-encoded, with a "wallet-auth:" prefix:
-           wallet-auth:MIGHAgEAMBMGByqGSM49...
-
-       This is NOT a valid PEM file. The cryptography library's
-       load_pem_private_key() will fail with InvalidByte because it
-       encounters raw DER bytes (0x81, 0x30, etc.) that are not valid
-       base64-inside-PEM.
-
-       Fix: strip the prefix, wrap in PEM headers/footers.
-
-    2. Standard PEM (already has -----BEGIN PRIVATE KEY----- header).
-       May have literal \\n instead of real newlines (common in .env files).
-
-       Fix: normalise \\n → real newlines and return as-is.
+    Rules:
+    - wallet-auth:<base64>  →  pass through as-is (SDK handles it)
+    - PEM with literal \\n  →  normalise \\n to real newlines
+    - Strip BOM / null bytes that can sneak in via .env editors
     """
     key = key.strip()
 
-    # Strip all null bytes and non-printable control characters that can
-    # sneak in via .env file editing (BOM, Windows terminal paste, etc.)
+    # Strip BOM, null bytes, and bare carriage returns
     key = key.replace("\x00", "").replace("\ufeff", "").replace("\r", "")
 
     if key.startswith("wallet-auth:"):
-        # Extract the raw base64 payload after the prefix
-        b64 = key[len("wallet-auth:"):]
-        # Keep only valid base64 characters: A-Z a-z 0-9 + / =
+        # Strip any stray whitespace/newlines that .env parsing might add
+        # to the payload — keep the wallet-auth: prefix exactly as-is.
         import re as _re
+        prefix = "wallet-auth:"
+        b64 = key[len(prefix):]
+        # Remove any non-base64 chars from the payload only (preserves prefix)
         b64 = _re.sub(r"[^A-Za-z0-9+/=]", "", b64)
-        # Wrap at 64 chars per line (PEM line length convention)
-        wrapped = "\n".join(textwrap.wrap(b64, 64))
-        return f"-----BEGIN PRIVATE KEY-----\n{wrapped}\n-----END PRIVATE KEY-----\n"
+        return prefix + b64
 
-    # Already PEM-ish — just normalise escaped newlines
+    # Already PEM — normalise escaped newlines
     return key.replace("\\n", "\n")
 
 

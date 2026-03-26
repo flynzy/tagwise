@@ -51,6 +51,8 @@ def try_privy_update(label, key_value):
         return False, None
 
 
+WALLET_ID = "jt7rhyni7z52ed39x0xi2p02"  # the wallet ID from your logs
+
 def try_signed_request(label, client):
     if client is None:
         print("  [SKIP] no client")
@@ -58,9 +60,33 @@ def try_signed_request(label, client):
     try:
         result = client.wallets.list()
         count = len(result.data) if hasattr(result, "data") else "?"
-        print("  [OK]  wallets.list() succeeded, count=" + str(count))
+        print("  [OK]  wallets.list(): count=" + str(count))
     except Exception as e:
         print("  [FAIL] wallets.list(): " + str(e))
+
+def try_rpc_signing(label, client):
+    if client is None:
+        print("  [SKIP] no client")
+        return
+    try:
+        # Minimal dummy typed-data sign — this exercises the actual authorization
+        # signature path that wallets.rpc() uses and that has been failing.
+        import time as _time
+        dummy_typed_data = {
+            "types": {"EIP712Domain": [{"name": "name", "type": "string"}], "Test": [{"name": "value", "type": "string"}]},
+            "domain": {"name": "Test"},
+            "primary_type": "Test",
+            "message": {"value": "hello"}
+        }
+        resp = client.wallets.rpc(
+            wallet_id=WALLET_ID,
+            method="eth_signTypedData_v4",
+            params={"typed_data": dummy_typed_data},
+        )
+        sig = getattr(getattr(resp, "data", resp), "signature", None)
+        print("  [OK]  wallets.rpc(eth_signTypedData_v4): sig=" + str(sig)[:20] + "...")
+    except Exception as e:
+        print("  [FAIL] wallets.rpc(eth_signTypedData_v4): " + str(e))
 
 
 sep("RAW KEY FROM ENV")
@@ -73,6 +99,7 @@ fmt1 = RAW_KEY
 try_load_pem("raw", fmt1)
 ok, client = try_privy_update("raw", fmt1)
 try_signed_request("raw", client)
+try_rpc_signing("raw", client)
 
 sep("Format 2 - replace literal backslash-n with real newlines")
 fmt2 = RAW_KEY.replace("\\n", "\n")
@@ -80,6 +107,7 @@ print("  Preview: " + repr(fmt2[:80]))
 try_load_pem("slash-n->newline", fmt2)
 ok, client = try_privy_update("slash-n->newline", fmt2)
 try_signed_request("slash-n->newline", client)
+try_rpc_signing("slash-n->newline", client)
 
 sep("Format 3 - strip 'wallet-auth:' prefix -> PKCS8 PEM")
 if RAW_KEY.startswith("wallet-auth:"):
@@ -91,6 +119,7 @@ if RAW_KEY.startswith("wallet-auth:"):
     ok3 = try_load_pem("PKCS8 PEM", fmt3)
     ok, client = try_privy_update("PKCS8 PEM", fmt3)
     try_signed_request("PKCS8 PEM", client)
+    try_rpc_signing("PKCS8 PEM", client)
 else:
     print("  (key does not start with wallet-auth:, skipping)")
 
@@ -104,6 +133,7 @@ if RAW_KEY.startswith("wallet-auth:"):
     try_load_pem("EC PEM", fmt4)
     ok, client = try_privy_update("EC PEM", fmt4)
     try_signed_request("EC PEM", client)
+    try_rpc_signing("EC PEM", client)
 else:
     print("  (key does not start with wallet-auth:, skipping)")
 
@@ -115,6 +145,7 @@ try:
     try_load_pem("normalize_result", fmt5)
     ok, client = try_privy_update("normalize_result", fmt5)
     try_signed_request("normalize_result", client)
+    try_rpc_signing("normalize_result", client)
 except ImportError as e:
     print("  Could not import: " + str(e))
 
