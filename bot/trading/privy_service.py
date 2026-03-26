@@ -2,9 +2,46 @@
 import os
 import asyncio
 import logging
+import textwrap
 from typing import Optional, Dict
 
 logger = logging.getLogger(__name__)
+
+
+def _normalize_privy_auth_key(key: str) -> str:
+    """
+    Convert a Privy authorization key to PEM format.
+
+    Privy authorization keys are distributed in two formats:
+
+    1. Raw PKCS#8 DER bytes base64-encoded, with a "wallet-auth:" prefix:
+           wallet-auth:MIGHAgEAMBMGByqGSM49...
+
+       This is NOT a valid PEM file. The cryptography library's
+       load_pem_private_key() will fail with InvalidByte because it
+       encounters raw DER bytes (0x81, 0x30, etc.) that are not valid
+       base64-inside-PEM.
+
+       Fix: strip the prefix, wrap in PEM headers/footers.
+
+    2. Standard PEM (already has -----BEGIN PRIVATE KEY----- header).
+       May have literal \\n instead of real newlines (common in .env files).
+
+       Fix: normalise \\n → real newlines and return as-is.
+    """
+    key = key.strip()
+
+    if key.startswith("wallet-auth:"):
+        # Extract the raw base64 payload after the prefix
+        b64 = key[len("wallet-auth:"):]
+        # Strip any accidental whitespace / URL-encoded characters
+        b64 = b64.strip().replace("\n", "").replace("\r", "").replace(" ", "")
+        # Wrap at 64 chars per line (PEM line length convention)
+        wrapped = "\n".join(textwrap.wrap(b64, 64))
+        return f"-----BEGIN PRIVATE KEY-----\n{wrapped}\n-----END PRIVATE KEY-----\n"
+
+    # Already PEM-ish — just normalise escaped newlines
+    return key.replace("\\n", "\n")
 
 
 class PrivyService:
@@ -18,12 +55,9 @@ class PrivyService:
             app_secret=app_secret,
         )
         if authorization_key:
-            # .env files commonly store PEM keys with literal \n instead of
-            # real newlines. The cryptography library will reject the key with
-            # "InvalidByte" if the newlines aren't actual \n characters.
-            # Normalise here so both forms work.
-            key = authorization_key.replace("\\n", "\n")
-            self.client.update_authorization_key(key)
+            self.client.update_authorization_key(
+                _normalize_privy_auth_key(authorization_key)
+            )
 
     async def _run_in_thread(self, fn, *args, **kwargs):
         loop = asyncio.get_running_loop()
