@@ -18,7 +18,12 @@ class PrivyService:
             app_secret=app_secret,
         )
         if authorization_key:
-            self.client.update_authorization_key(authorization_key)
+            # .env files commonly store PEM keys with literal \n instead of
+            # real newlines. The cryptography library will reject the key with
+            # "InvalidByte" if the newlines aren't actual \n characters.
+            # Normalise here so both forms work.
+            key = authorization_key.replace("\\n", "\n")
+            self.client.update_authorization_key(key)
 
     async def _run_in_thread(self, fn, *args, **kwargs):
         loop = asyncio.get_running_loop()
