@@ -59,6 +59,40 @@ class PrivyService:
         self._normalized_key: str | None = (
             _normalize_privy_auth_key(authorization_key) if authorization_key else None
         )
+        if self._normalized_key:
+            try:
+                pem_bytes = self._normalized_key.encode("utf-8")
+                null_count = pem_bytes.count(0)
+                lines = self._normalized_key.splitlines()
+                logger.info(
+                    f"PRIVY_AUTH_KEY startup check: "
+                    f"lines={len(lines)}, "
+                    f"total_len={len(self._normalized_key)}, "
+                    f"null_bytes={null_count}, "
+                    f"first_line={repr(lines[0] if lines else 'EMPTY')}, "
+                    f"last_line={repr(lines[-1] if lines else 'EMPTY')}"
+                )
+                with open("/tmp/privy_key_debug.pem", "w", encoding="utf-8") as f:
+                    f.write(self._normalized_key)
+                # Write a quick verify script
+                with open("/tmp/verify_privy_key.py", "w", encoding="utf-8") as f:
+                    f.write(
+                        "from cryptography.hazmat.primitives.serialization import load_pem_private_key\n"
+                        "data = open('/tmp/privy_key_debug.pem','rb').read()\n"
+                        "print('len=',len(data),'null_bytes=',data.count(0))\n"
+                        "print('start=',repr(data[:60]))\n"
+                        "print('end=  ',repr(data[-40:]))\n"
+                        "try:\n"
+                        "    k=load_pem_private_key(data,password=None)\n"
+                        "    print('[OK]',type(k).__name__)\n"
+                        "except Exception as e:\n"
+                        "    print('[FAIL]',e)\n"
+                    )
+                logger.info("Wrote /tmp/privy_key_debug.pem and /tmp/verify_privy_key.py")
+            except Exception as _e:
+                logger.warning(f"Could not write PRIVY_AUTH_KEY debug files: {_e}")
+        else:
+            logger.warning("PRIVY_AUTH_KEY is None — authorization key not set!")
         # Long-lived client for non-signing admin operations (users.create, wallets.create, wallets.list)
         self.client = self._make_client()
 
