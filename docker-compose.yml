@@ -8,6 +8,8 @@ services:
     build: .
     container_name: tagwise-bot
     command: python main.py
+    env_file:
+      - .env
     environment:
       # Database & Cache (AWS)
       DATABASE_URL: ${DATABASE_URL}
