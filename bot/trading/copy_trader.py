@@ -555,6 +555,18 @@ class CopyTrader:
                     except Exception:
                         pass
 
+                # Sync USDC allowance on this client instance so the CLOB
+                # sees the current on-chain state before we post the order.
+                try:
+                    await loop.run_in_executor(
+                        None,
+                        lambda: self.client.update_balance_allowance(
+                            BalanceAllowanceParams(asset_type=AssetType.COLLATERAL)
+                        )
+                    )
+                except Exception as _sync_err:
+                    logger.debug(f"Pre-order allowance sync failed (non-fatal): {_sync_err}")
+
                 if side == 'BUY':
                     market_order_args = MarketOrderArgs(
                         token_id=token_id,
@@ -655,25 +667,29 @@ class CopyTrader:
                     result['skipped'] = True
                     logger.warning(f"Order below minimum size: {error_msg}")
                 elif 'allowance' in error_lower and 'allowance: 0' in error_msg:
-                    # The CLOB's cached allowance is stale. Trigger a re-sync so the
-                    # next trade attempt will succeed. This does NOT retry immediately
-                    # because setup (on-chain approve) may also be missing.
+                    # The CLOB confirmed allowance=0 on-chain — the Safe's approve()
+                    # to the CTF Exchange contract was never executed or failed silently.
+                    # The user must re-run "Complete Setup (Gasless)" from the bot UI.
                     result['success'] = False
-                    result['error'] = 'USDC allowance not synced to Polymarket. Re-syncing...'
+                    result['error'] = (
+                        'Safe wallet allowance not set on-chain (allowance=0). '
+                        'Please tap ⚙️ Complete Setup in the trading wallet menu.'
+                    )
                     result['skipped'] = True
                     logger.warning(
-                        f"Allowance=0 for user {self._user_id}. "
-                        f"Triggering update_balance_allowance to re-sync CLOB state."
+                        f"Allowance=0 for user {self._user_id} — on-chain approve() to "
+                        f"CTF Exchange has not been executed. User must re-run Setup."
                     )
-                    # Fire-and-forget sync so next trade works without user action
+                    # Fire-and-forget: attempt to re-run setup automatically
                     if self._wallet_manager and self._user_id:
                         try:
                             loop2 = asyncio.get_running_loop()
                             loop2.create_task(
-                                self._wallet_manager._activate_trading(self._user_id)
+                                self._wallet_manager.setup_safe(self._user_id)
                             )
+                            logger.info(f"Triggered automatic setup_safe for user {self._user_id}")
                         except Exception as _sync_err:
-                            logger.debug(f"Could not schedule allowance sync: {_sync_err}")
+                            logger.debug(f"Could not schedule setup_safe: {_sync_err}")
                 elif 'geoblock' in error_lower or '403' in error_msg or 'trading restricted' in error_lower:
                     result['success'] = False
                     result['error'] = 'Order rejected: trading restricted in this region (geoblock)'
