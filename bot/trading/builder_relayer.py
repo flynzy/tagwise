@@ -337,11 +337,14 @@ class BuilderRelayer:
         client = RelayClient(
             relayer_url=RELAYER_URL,
             chain_id=CHAIN_ID,
-            private_key=None,
+            private_key=None, 
             builder_config=builder_config,
         )
-
-        # Inject Privy signer with factory address so sign() can reconstruct typed data
+        
+        # CRITICAL: Manually set the address property so the client
+        # targets the correct Safe derivation
+        client.address = Web3.to_checksum_address(eoa_address) 
+        
         client.signer = PrivyRelayerSigner(
             privy_service,
             wallet_id,
@@ -349,7 +352,6 @@ class BuilderRelayer:
             CHAIN_ID,
             safe_factory=contract_config.safe_factory,
         )
-
         return client, eoa_address
 
     def deploy_safe_privy(self, privy_service, wallet_id: str, eoa_address: str) -> Dict:
@@ -562,7 +564,7 @@ class BuilderRelayer:
                     ).call()
                     
                     # Allowances are set only if BOTH are > 1M USDC
-                    allowances_set = (allowance_ctf > 10**12) and (allowance_negrisk > 10**12)
+                    allowances_set = (allowance_ctf > 10**8) and (allowance_negrisk > 10**8)
                     
                 except Exception as e:
                     logger.debug(f"Error checking allowances: {e}")

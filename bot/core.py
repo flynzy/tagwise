@@ -1,5 +1,4 @@
 # bot/core.py
-"""Refactored core bot class for scalability."""
 
 import asyncio
 import logging
