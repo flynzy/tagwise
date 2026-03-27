@@ -8,6 +8,7 @@ import os
 import logging
 from typing import Optional, Dict
 from web3 import Web3
+import asyncio
 
 from py_clob_client.client import ClobClient
 from py_clob_client.clob_types import AssetType, BalanceAllowanceParams
@@ -274,7 +275,10 @@ class WalletManager:
             return {'success': False, 'error': str(e)}
 
     async def setup_safe(self, user_id: int) -> Dict:
-            """Robust: Deploy Safe, set dual allowances, and force-sync CLOB."""
+            """
+            Robust: Deploy Safe, set dual allowances, and force-sync CLOB.
+            Wraps synchronous builder calls in threads to prevent event-loop clashes.
+            """
             if not self.builder:
                 return {'success': False, 'error': 'Builder Relayer not configured'}
 
@@ -284,40 +288,59 @@ class WalletManager:
 
             privy_wallet_id = wallet.get('privy_wallet_id')
             eoa_address = wallet['address']
+            
+            # derive_safe_address is a sync math operation (CREATE2), no thread needed
             safe_address = wallet.get('safe_address') or self.builder.derive_safe_address(eoa_address)
 
-            # Step 1: Check status with a lower threshold (e.g., 100 USDC instead of 1M)
-            status = self.builder.get_safe_status(eoa_address)
-            
-            # Step 2: Deploy Safe if needed
-            if not status['deployed']:
-                logger.info(f"Deploying Safe for user {user_id}...")
-                deploy_result = self.builder.deploy_safe_privy(self.privy_service, privy_wallet_id, eoa_address)
-                if not deploy_result['success']:
-                    return {'success': False, 'error': f"Safe deployment failed: {deploy_result.get('error')}"}
+            try:
+                # Step 1: Check status (Synchronous RPC call)
+                status = await asyncio.to_thread(self.builder.get_safe_status, eoa_address)
+                
+                # Step 2: Deploy Safe if needed
+                if not status['deployed']:
+                    logger.info(f"Deploying Safe for user {user_id}...")
+                    deploy_result = await asyncio.to_thread(
+                        self.builder.deploy_safe_privy, 
+                        self.privy_service, privy_wallet_id, eoa_address
+                    )
+                    if not deploy_result['success']:
+                        return {'success': False, 'error': f"Safe deployment failed: {deploy_result.get('error')}"}
 
-            # Step 3: Always force-sync allowances if the log shows 0
-            logger.info(f"Setting dual-exchange allowances for user {user_id}...")
-            allowance_result = self.builder.set_allowances_privy(
-                self.privy_service, privy_wallet_id, eoa_address, safe_address
-            )
-            if not allowance_result['success']:
-                return {'success': False, 'error': f"Allowance update failed: {allowance_result.get('error')}"}
+                # Step 3: Always force-sync allowances
+                # This is critical to fix the 'allowance: 0' error
+                logger.info(f"Setting dual-exchange allowances for user {user_id}...")
+                allowance_result = await asyncio.to_thread(
+                    self.builder.set_allowances_privy,
+                    self.privy_service, privy_wallet_id, eoa_address, safe_address
+                )
+                if not allowance_result['success']:
+                    return {'success': False, 'error': f"Allowance update failed: {allowance_result.get('error')}"}
 
-            # Step 4: Verify on-chain status BEFORE activating CLOB
-            final_status = self.builder.get_safe_status(eoa_address)
-            if not final_status['allowances_set']:
-                # This happens if the tx confirmed but RPC hasn't indexed or threshold is too high
-                logger.warning(f"On-chain check for user {user_id} pending. Proceeding to CLOB sync.")
+                # Step 4: Verify on-chain status BEFORE activating CLOB
+                final_status = await asyncio.to_thread(self.builder.get_safe_status, eoa_address)
+                if not final_status['allowances_set']:
+                    # Note: This might be due to RPC latency. We proceed anyway because 
+                    # we just sent the transaction in Step 3.
+                    logger.warning(f"On-chain check for user {user_id} pending indexer. Proceeding to CLOB sync.")
 
-            await self.db.update_wallet_allowances_set(user_id, True)
+                # Update DB to reflect setup completion
+                await self.db.update_wallet_allowances_set(user_id, True)
 
-            # Step 5: Force CLOB to refresh its view of your wallet
-            activation = await self._activate_trading(user_id)
-            if not activation['success']:
-                return {'success': False, 'error': f"Allowances set but CLOB sync failed: {activation.get('error')}"}
+                # Step 5: Force CLOB to refresh its view of your wallet
+                # This makes the 0 allowance error go away on the Polymarket API side
+                activation = await self._activate_trading(user_id)
+                if not activation['success']:
+                    return {'success': False, 'error': f"Allowances set but CLOB sync failed: {activation.get('error')}"}
 
-            return {'success': True, 'safe_address': safe_address, 'message': 'Wallet ready and synced.'}
+                return {
+                    'success': True, 
+                    'safe_address': safe_address, 
+                    'message': 'Wallet ready and CLOB synced.'
+                }
+
+            except Exception as e:
+                logger.error(f"Setup error for user {user_id}: {e}", exc_info=True)
+                return {'success': False, 'error': str(e)}
 
     async def get_wallet(self, user_id: int) -> Optional[Dict]:
         """Get wallet info for a user (without private key)"""

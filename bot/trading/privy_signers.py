@@ -11,6 +11,7 @@ Replaces:
 """
 
 import asyncio
+import concurrent.futures
 import logging
 from datetime import datetime
 
@@ -42,24 +43,23 @@ logger = logging.getLogger(__name__)
 
 def _run_async(coro):
     """
-    Run an async coroutine from a synchronous context — safe whether called
-    from the main asyncio thread (via run_in_executor → worker thread) or
-    from a plain synchronous context.
-
-    Problem: asyncio.get_event_loop() raises RuntimeError in thread-pool
-    worker threads (Python ≥ 3.10) because they have no attached event loop.
-    asyncio.run() is the right tool but it also fails if somehow called from
-    an already-running loop.
-
-    Solution: always create a *brand-new* event loop for the worker thread,
-    run the coroutine to completion, then close it.  This is the pattern
-    recommended by the Python docs for "run async code from a thread."
+    Safely bridge synchronous code to an asynchronous coroutine.
+    Handles the 'RuntimeError: Cannot run the event loop while another loop is running'
+    by offloading to a new thread if a loop is already detected.
     """
-    loop = asyncio.new_event_loop()
     try:
-        return loop.run_until_complete(coro)
-    finally:
-        loop.close()
+        # Check if an event loop is already running in the current thread
+        loop = asyncio.get_running_loop()
+        
+        # If we are here, we are on the Main Thread (loop is running).
+        # We MUST offload to a separate thread to run the coroutine.
+        with concurrent.futures.ThreadPoolExecutor() as pool:
+            return pool.submit(asyncio.run, coro).result()
+            
+    except RuntimeError:
+        # No loop is running in this thread (common in worker threads).
+        # We can safely use asyncio.run() which creates/closes its own loop.
+        return asyncio.run(coro)
 
 
 # ─── EIP-712 Domain Helpers ───────────────────────────────────────────────
