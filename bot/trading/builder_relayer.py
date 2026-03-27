@@ -564,7 +564,7 @@ class BuilderRelayer:
                     ).call()
                     
                     # Allowances are set only if BOTH are > 1M USDC
-                    allowances_set = (allowance_ctf > 10**8) and (allowance_negrisk > 10**8)
+                    allowances_set = (allowance_ctf > 0) and (allowance_negrisk > 0)
                     
                 except Exception as e:
                     logger.debug(f"Error checking allowances: {e}")

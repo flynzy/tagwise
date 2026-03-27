@@ -642,17 +642,23 @@ class CopyTrader:
 
             except Exception as order_error:
                 error_msg = str(order_error)
+                error_lower = error_msg.lower()
 
-                if 'no match' in error_msg.lower():
+                if 'no match' in error_lower:
                     result['success'] = False
                     result['error'] = 'Insufficient liquidity in order book'
                     result['skipped'] = True
                     logger.warning(f"Order failed due to liquidity: {market_name} - {outcome}")
-                elif 'lower than the minimum' in error_msg.lower():
+                elif 'lower than the minimum' in error_lower:
                     result['success'] = False
                     result['error'] = f'Order below minimum: {error_msg}'
                     result['skipped'] = True
                     logger.warning(f"Order below minimum size: {error_msg}")
+                elif 'geoblock' in error_lower or '403' in error_msg or 'trading restricted' in error_lower:
+                    result['success'] = False
+                    result['error'] = 'Order rejected: trading restricted in this region (geoblock)'
+                    result['skipped'] = True
+                    logger.warning(f"Order geoblocked for {market_name} - {outcome}. The EC2 server's IP may be in a restricted region. Consider routing via a VPN/proxy.")
                 else:
                     result['success'] = False
                     result['error'] = f"Order execution failed: {error_msg}"

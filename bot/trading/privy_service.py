@@ -2,7 +2,7 @@
 import os
 import asyncio
 import logging
-import textwrap
+import re
 from typing import Optional, Dict
 
 logger = logging.getLogger(__name__)
@@ -31,12 +31,8 @@ def _normalize_privy_auth_key(key: str) -> str:
     if key.startswith("wallet-auth:"):
         # Strip any stray whitespace/newlines that .env parsing might add
         # to the payload — keep the wallet-auth: prefix exactly as-is.
-        import re as _re
-        prefix = "wallet-auth:"
-        b64 = key[len(prefix):]
-        # Remove any non-base64 chars from the payload only (preserves prefix)
-        b64 = _re.sub(r"[^A-Za-z0-9+/=]", "", b64)
-        return prefix + b64
+        b64 = re.sub(r"[^A-Za-z0-9+/=]", "", key[len("wallet-auth:"):])
+        return "wallet-auth:" + b64
 
     # Already PEM — normalise escaped newlines
     return key.replace("\\n", "\n")
