@@ -329,9 +329,11 @@ Track Polymarket wallets and get notified of their trades.
         )
 
         keyboard = [[InlineKeyboardButton("🔄 Refresh", callback_data="wallet_refresh")]]
-        #if not ready:
-        keyboard.append([InlineKeyboardButton("⚙️ Complete Setup (Gasless)", callback_data="wallet_setup")])
-
+        if not ready:
+            keyboard.append([InlineKeyboardButton("⚙️ Complete Setup (Gasless)", callback_data="wallet_setup")])
+        else:
+            # Always allow re-running setup to fix stale allowances (e.g. after adding USDC.e)
+            keyboard.append([InlineKeyboardButton("🔄 Re-run Allowances Setup", callback_data="wallet_setup")])
         keyboard.extend([
             [InlineKeyboardButton("💸 Claim winnings", callback_data="wallet_claim")],
             [InlineKeyboardButton("📤 Withdraw USDC", callback_data="wallet_withdraw")],
