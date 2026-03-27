@@ -13,9 +13,15 @@ from web3 import Web3
 logger = logging.getLogger(__name__)
 
 # Contract addresses on Polygon
-USDC_ADDRESS = "0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359"
+USDC_ADDRESS   = "0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359"  # native USDC
+USDC_E_ADDRESS = "0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174"  # USDC.e (PoS-bridged)
 NEG_RISK_CTF_EXCHANGE = "0xC5d563A36AE78145C45a50134d48A1215220f80a"
-CTF_EXCHANGE = "0x4bFb41d5B3570DeFd03C39a9A4D8dE6Bd8B8982E"
+CTF_EXCHANGE          = "0x4bFb41d5B3570DeFd03C39a9A4D8dE6Bd8B8982E"
+
+# All USDC tokens that may be used on Polymarket — we approve them all
+ALL_USDC_TOKENS = [USDC_ADDRESS, USDC_E_ADDRESS]
+# All Polymarket exchange spenders
+ALL_EXCHANGES   = [CTF_EXCHANGE, NEG_RISK_CTF_EXCHANGE]
 
 RELAYER_URL = "https://relayer-v2.polymarket.com/"
 CHAIN_ID = 137
@@ -388,12 +394,20 @@ class BuilderRelayer:
             return {'success': False, 'error': str(e)}
 
     def set_allowances_privy(self, privy_service, wallet_id: str, eoa_address: str, safe_address: str) -> Dict:
-        """Set USDC allowances for BOTH Polymarket exchanges using Privy-backed signing."""
+        """
+        Approve BOTH USDC variants (native USDC + USDC.e) for BOTH Polymarket exchanges.
+        This creates 4 approve() transactions batched into a single relayer call.
+
+        Why both tokens?  The Safe wallet may hold either/both depending on how the
+        user deposited funds.  Polymarket's CLOB checks allowance for the token it
+        tracks; if the Safe holds USDC.e the CTF Exchange allowance must be set on
+        USDC.e, not on native USDC.
+        """
         try:
             client, _ = self._get_relay_client_privy(privy_service, wallet_id, eoa_address)
 
             MAX_UINT256 = 2**256 - 1
-            usdc_abi = [{
+            approve_abi = [{
                 "name": "approve", "type": "function",
                 "inputs": [
                     {"name": "spender", "type": "address"},
@@ -402,29 +416,29 @@ class BuilderRelayer:
                 "outputs": [{"name": "", "type": "bool"}],
                 "stateMutability": "nonpayable"
             }]
-            usdc = self.w3.eth.contract(
-                address=Web3.to_checksum_address(USDC_ADDRESS), abi=usdc_abi
-            )
-            
-            # 1. Create calldata for Standard CTF Exchange
-            calldata_ctf = usdc.encode_abi("approve", [
-                Web3.to_checksum_address(CTF_EXCHANGE), MAX_UINT256
-            ])
-            
-            # 2. Create calldata for NegRisk Exchange
-            calldata_negrisk = usdc.encode_abi("approve", [
-                Web3.to_checksum_address(NEG_RISK_CTF_EXCHANGE), MAX_UINT256
-            ])
 
             from py_builder_relayer_client.models import SafeTransaction, OperationType
-            
-            # 3. Create two transactions
-            tx_ctf = SafeTransaction(to=USDC_ADDRESS, data=calldata_ctf, value="0", operation=OperationType.Call)
-            tx_negrisk = SafeTransaction(to=USDC_ADDRESS, data=calldata_negrisk, value="0", operation=OperationType.Call)
 
-            # 4. Execute them as a single BATCH
-            response = client.execute([tx_ctf, tx_negrisk], "Approve both Polymarket exchanges")
-            
+            txns = []
+            for token_addr in ALL_USDC_TOKENS:
+                token_contract = self.w3.eth.contract(
+                    address=Web3.to_checksum_address(token_addr), abi=approve_abi
+                )
+                for spender_addr in ALL_EXCHANGES:
+                    calldata = token_contract.encode_abi("approve", [
+                        Web3.to_checksum_address(spender_addr), MAX_UINT256
+                    ])
+                    txns.append(SafeTransaction(
+                        to=token_addr, data=calldata, value="0", operation=OperationType.Call
+                    ))
+
+            logger.info(
+                f"Submitting {len(txns)} approve() txns for Safe {safe_address} "
+                f"(tokens: {[t[:10] for t in ALL_USDC_TOKENS]}, "
+                f"spenders: {[s[:10] for s in ALL_EXCHANGES]})"
+            )
+            response = client.execute(txns, "Approve USDC + USDC.e for all Polymarket exchanges")
+
             result = client.poll_until_state(
                 transaction_id=response.transaction_id,
                 states=["STATE_CONFIRMED"],
@@ -434,7 +448,7 @@ class BuilderRelayer:
             )
 
             if result:
-                logger.info(f"✅ Both allowances set for Safe {safe_address} (Privy-backed)")
+                logger.info(f"✅ All allowances set for Safe {safe_address} (Privy-backed)")
                 return {'success': True, 'tx_hash': response.transaction_hash}
             return {'success': False, 'error': 'Allowance batch tx timed out'}
 
@@ -532,11 +546,12 @@ class BuilderRelayer:
             safe_address = self.derive_safe_address(eoa_address)
             deployed = self.is_safe_deployed(safe_address) if safe_address else False
             
-            # Check allowances if deployed
+            # Check allowances if deployed — must be set on ALL token/spender combinations.
+            # The wallet may hold either native USDC or USDC.e, so we check both.
             allowances_set = False
             if deployed and safe_address:
                 try:
-                    usdc_abi = [{
+                    allowance_abi = [{
                         "constant": True,
                         "inputs": [
                             {"name": "owner", "type": "address"},
@@ -546,26 +561,28 @@ class BuilderRelayer:
                         "outputs": [{"name": "", "type": "uint256"}],
                         "type": "function"
                     }]
-                    
-                    usdc = self.w3.eth.contract(
-                        address=Web3.to_checksum_address(USDC_ADDRESS),
-                        abi=usdc_abi
-                    )
-                    
-                    allowance_ctf = usdc.functions.allowance(
-                        Web3.to_checksum_address(safe_address),
-                        Web3.to_checksum_address(CTF_EXCHANGE)
-                    ).call()
-                    
-                    # Check NegRisk
-                    allowance_negrisk = usdc.functions.allowance(
-                        Web3.to_checksum_address(safe_address),
-                        Web3.to_checksum_address(NEG_RISK_CTF_EXCHANGE)
-                    ).call()
-                    
-                    # Allowances are set only if BOTH are > 1M USDC
-                    allowances_set = (allowance_ctf > 0) and (allowance_negrisk > 0)
-                    
+
+                    safe_cs = Web3.to_checksum_address(safe_address)
+                    all_ok = True
+                    for token_addr in ALL_USDC_TOKENS:
+                        token_contract = self.w3.eth.contract(
+                            address=Web3.to_checksum_address(token_addr),
+                            abi=allowance_abi
+                        )
+                        for spender_addr in ALL_EXCHANGES:
+                            val = token_contract.functions.allowance(
+                                safe_cs,
+                                Web3.to_checksum_address(spender_addr)
+                            ).call()
+                            if val == 0:
+                                all_ok = False
+                                logger.debug(
+                                    f"Allowance=0: token={token_addr[:10]}... "
+                                    f"spender={spender_addr[:10]}..."
+                                )
+
+                    allowances_set = all_ok
+
                 except Exception as e:
                     logger.debug(f"Error checking allowances: {e}")
             
