@@ -52,40 +52,8 @@ class PrivyService:
         self._normalized_key: str | None = (
             _normalize_privy_auth_key(authorization_key) if authorization_key else None
         )
-        if self._normalized_key:
-            try:
-                pem_bytes = self._normalized_key.encode("utf-8")
-                null_count = pem_bytes.count(0)
-                lines = self._normalized_key.splitlines()
-                logger.info(
-                    f"PRIVY_AUTH_KEY startup check: "
-                    f"lines={len(lines)}, "
-                    f"total_len={len(self._normalized_key)}, "
-                    f"null_bytes={null_count}, "
-                    f"first_line={repr(lines[0] if lines else 'EMPTY')}, "
-                    f"last_line={repr(lines[-1] if lines else 'EMPTY')}"
-                )
-                with open("/tmp/privy_key_debug.pem", "w", encoding="utf-8") as f:
-                    f.write(self._normalized_key)
-                # Write a quick verify script
-                with open("/tmp/verify_privy_key.py", "w", encoding="utf-8") as f:
-                    f.write(
-                        "from cryptography.hazmat.primitives.serialization import load_pem_private_key\n"
-                        "data = open('/tmp/privy_key_debug.pem','rb').read()\n"
-                        "print('len=',len(data),'null_bytes=',data.count(0))\n"
-                        "print('start=',repr(data[:60]))\n"
-                        "print('end=  ',repr(data[-40:]))\n"
-                        "try:\n"
-                        "    k=load_pem_private_key(data,password=None)\n"
-                        "    print('[OK]',type(k).__name__)\n"
-                        "except Exception as e:\n"
-                        "    print('[FAIL]',e)\n"
-                    )
-                logger.info("Wrote /tmp/privy_key_debug.pem and /tmp/verify_privy_key.py")
-            except Exception as _e:
-                logger.warning(f"Could not write PRIVY_AUTH_KEY debug files: {_e}")
-        else:
-            logger.warning("PRIVY_AUTH_KEY is None — authorization key not set!")
+        if not self._normalized_key:
+            logger.warning("PRIVY_AUTH_KEY is not set — Privy signing will not work!")
         # Long-lived client for non-signing admin operations (users.create, wallets.create, wallets.list)
         self.client = self._make_client()
 
@@ -101,21 +69,6 @@ class PrivyService:
         from privy import PrivyAPI
         client = PrivyAPI(app_id=self._app_id, app_secret=self._app_secret)
         if self._normalized_key:
-            # Diagnostic: log key metadata so we can detect corruption at runtime
-            key_bytes = self._normalized_key.encode("utf-8")
-            null_positions = [i for i, b in enumerate(key_bytes) if b == 0]
-            if null_positions:
-                logger.error(
-                    f"PRIVY_AUTH_KEY has null bytes at positions {null_positions[:5]} "
-                    f"(key len={len(self._normalized_key)}, bytes len={len(key_bytes)}). "
-                    f"First 60 chars: {repr(self._normalized_key[:60])}"
-                )
-            else:
-                logger.debug(
-                    f"PRIVY_AUTH_KEY normalized OK: len={len(self._normalized_key)}, "
-                    f"starts={repr(self._normalized_key[:40])}, "
-                    f"ends={repr(self._normalized_key[-20:])}"
-                )
             client.update_authorization_key(self._normalized_key)
         return client
 
@@ -140,12 +93,6 @@ class PrivyService:
             chain_type="ethereum",
             owner_id=quorum_id,
         )
-
-        # Debug: inspect all wallet attributes
-        print(f"DEBUG wallet object: {wallet}")
-        print(f"DEBUG wallet.__dict__: {vars(wallet) if hasattr(wallet, '__dict__') else dir(wallet)}")
-        print(f"DEBUG wallet.id: {getattr(wallet, 'id', 'MISSING')}")
-        print(f"DEBUG wallet.address: {getattr(wallet, 'address', 'MISSING')}")
 
         logger.info(
             f"Created Privy user {user.id} with wallet {wallet.address} "

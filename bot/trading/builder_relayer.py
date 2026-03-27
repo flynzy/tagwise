@@ -15,6 +15,7 @@ logger = logging.getLogger(__name__)
 # Contract addresses on Polygon
 USDC_ADDRESS = "0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359"
 NEG_RISK_CTF_EXCHANGE = "0xC5d563A36AE78145C45a50134d48A1215220f80a"
+CTF_EXCHANGE = "0x4bFb41d5B3570DeFd03C39a9A4D8dE6Bd8B8982E"
 
 RELAYER_URL = "https://relayer-v2.polymarket.com/"
 CHAIN_ID = 137
@@ -385,47 +386,59 @@ class BuilderRelayer:
             return {'success': False, 'error': str(e)}
 
     def set_allowances_privy(self, privy_service, wallet_id: str, eoa_address: str, safe_address: str) -> Dict:
-        """Set USDC allowances using Privy-backed signing."""
-        try:
-            client, _ = self._get_relay_client_privy(privy_service, wallet_id, eoa_address)
+            """Set USDC allowances using Privy-backed signing."""
+            try:
+                client, _ = self._get_relay_client_privy(privy_service, wallet_id, eoa_address)
 
-            MAX_UINT256 = 2**256 - 1
-            usdc_abi = [{
-                "name": "approve", "type": "function",
-                "inputs": [
-                    {"name": "spender", "type": "address"},
-                    {"name": "amount", "type": "uint256"}
-                ],
-                "outputs": [{"name": "", "type": "bool"}],
-                "stateMutability": "nonpayable"
-            }]
-            usdc = self.w3.eth.contract(
-                address=Web3.to_checksum_address(USDC_ADDRESS), abi=usdc_abi
-            )
-            calldata = usdc.encode_abi("approve", [
-                Web3.to_checksum_address(NEG_RISK_CTF_EXCHANGE), MAX_UINT256
-            ])
+                MAX_UINT256 = 2**256 - 1
+                usdc_abi = [{
+                    "name": "approve", "type": "function",
+                    "inputs": [
+                        {"name": "spender", "type": "address"},
+                        {"name": "amount", "type": "uint256"}
+                    ],
+                    "outputs": [{"name": "", "type": "bool"}],
+                    "stateMutability": "nonpayable"
+                }]
+                usdc = self.w3.eth.contract(
+                    address=Web3.to_checksum_address(USDC_ADDRESS), abi=usdc_abi
+                )
+                
+                # Encode approval for NegRisk Exchange
+                calldata_negrisk = usdc.encode_abi("approve", [
+                    Web3.to_checksum_address(NEG_RISK_CTF_EXCHANGE), MAX_UINT256
+                ])
+                
+                # Encode approval for Standard Exchange
+                calldata_ctf = usdc.encode_abi("approve", [
+                    Web3.to_checksum_address(CTF_EXCHANGE), MAX_UINT256
+                ])
 
-            from py_builder_relayer_client.models import SafeTransaction, OperationType
-            txn = SafeTransaction(to=USDC_ADDRESS, data=calldata, value="0", operation=OperationType.Call)
+                from py_builder_relayer_client.models import SafeTransaction, OperationType
+                
+                # Create two separate transaction objects
+                txn_negrisk = SafeTransaction(to=USDC_ADDRESS, data=calldata_negrisk, value="0", operation=OperationType.Call)
+                txn_ctf = SafeTransaction(to=USDC_ADDRESS, data=calldata_ctf, value="0", operation=OperationType.Call)
 
-            response = client.execute([txn], "Approve USDC for trading")
-            result = client.poll_until_state(
-                transaction_id=response.transaction_id,
-                states=["STATE_CONFIRMED"],
-                fail_state="STATE_FAILED",
-                max_polls=20,
-                poll_frequency=3000,
-            )
+                # The relayer allows you to pass an array of transactions to batch them together
+                response = client.execute([txn_negrisk, txn_ctf], "Approve USDC for both CTF Exchanges")
+                
+                result = client.poll_until_state(
+                    transaction_id=response.transaction_id,
+                    states=["STATE_CONFIRMED"],
+                    fail_state="STATE_FAILED",
+                    max_polls=20,
+                    poll_frequency=3000,
+                )
 
-            if result:
-                logger.info(f"Allowances set for Safe {safe_address} (Privy-backed)")
-                return {'success': True, 'tx_hash': response.transaction_hash}
-            return {'success': False, 'error': 'Allowance tx timed out'}
+                if result:
+                    logger.info(f"Allowances set for Safe {safe_address} (Privy-backed)")
+                    return {'success': True, 'tx_hash': response.transaction_hash}
+                return {'success': False, 'error': 'Allowance tx timed out'}
 
-        except Exception as e:
-            logger.error(f"Error setting allowances (Privy): {e}", exc_info=True)
-            return {'success': False, 'error': str(e)}
+            except Exception as e:
+                logger.error(f"Error setting allowances (Privy): {e}", exc_info=True)
+                return {'success': False, 'error': str(e)}
 
     def withdraw_from_safe_privy(self, privy_service, wallet_id: str, eoa_address: str,
                                   safe_address: str, to_address: str, amount: float) -> Dict:
@@ -510,48 +523,58 @@ class BuilderRelayer:
             return {'success': False, 'error': str(e)}
 
     def get_safe_status(self, eoa_address: str) -> Dict:
-        """
-        Get the status of a Safe for an EOA.
-        """
-        safe_address = self.derive_safe_address(eoa_address)
-        deployed = self.is_safe_deployed(safe_address) if safe_address else False
-        
-        # Check allowances if deployed
-        allowances_set = False
-        if deployed and safe_address:
-            try:
-                usdc_abi = [{
-                    "constant": True,
-                    "inputs": [
-                        {"name": "owner", "type": "address"},
-                        {"name": "spender", "type": "address"}
-                    ],
-                    "name": "allowance",
-                    "outputs": [{"name": "", "type": "uint256"}],
-                    "type": "function"
-                }]
-                
-                usdc = self.w3.eth.contract(
-                    address=Web3.to_checksum_address(USDC_ADDRESS),
-                    abi=usdc_abi
-                )
-                
-                allowance = usdc.functions.allowance(
-                    Web3.to_checksum_address(safe_address),
-                    Web3.to_checksum_address(NEG_RISK_CTF_EXCHANGE)
-                ).call()
-                
-                allowances_set = allowance > 1_000_000 * 1_000_000
-                
-            except Exception as e:
-                logger.debug(f"Error checking allowances: {e}")
-        
-        return {
-            'safe_address': safe_address,
-            'deployed': deployed,
-            'allowances_set': allowances_set
-        }
-
+            """
+            Get the status of a Safe for an EOA, checking allowances for BOTH CTF exchanges.
+            """
+            safe_address = self.derive_safe_address(eoa_address)
+            deployed = self.is_safe_deployed(safe_address) if safe_address else False
+            
+            # Check allowances if deployed
+            allowances_set = False
+            if deployed and safe_address:
+                try:
+                    usdc_abi = [{
+                        "constant": True,
+                        "inputs": [
+                            {"name": "owner", "type": "address"},
+                            {"name": "spender", "type": "address"}
+                        ],
+                        "name": "allowance",
+                        "outputs": [{"name": "", "type": "uint256"}],
+                        "type": "function"
+                    }]
+                    
+                    usdc = self.w3.eth.contract(
+                        address=Web3.to_checksum_address(USDC_ADDRESS),
+                        abi=usdc_abi
+                    )
+                    
+                    # 1. Check NegRisk Exchange allowance
+                    allowance_negrisk = usdc.functions.allowance(
+                        Web3.to_checksum_address(safe_address),
+                        Web3.to_checksum_address(NEG_RISK_CTF_EXCHANGE)
+                    ).call()
+                    
+                    # 2. Check Standard CTF Exchange allowance
+                    allowance_ctf = usdc.functions.allowance(
+                        Web3.to_checksum_address(safe_address),
+                        Web3.to_checksum_address(CTF_EXCHANGE)
+                    ).call()
+                    
+                    # Threshold (e.g., 1,000,000 USDC)
+                    threshold = 1_000_000 * 1_000_000
+                    
+                    # BOTH must be approved to be considered fully set
+                    allowances_set = (allowance_negrisk > threshold) and (allowance_ctf > threshold)
+                    
+                except Exception as e:
+                    logger.debug(f"Error checking allowances: {e}")
+            
+            return {
+                'safe_address': safe_address,
+                'deployed': deployed,
+                'allowances_set': allowances_set
+            }
 
 # Singleton instance
 _builder_relayer = None
