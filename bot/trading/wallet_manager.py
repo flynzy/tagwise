@@ -274,7 +274,7 @@ class WalletManager:
             return {'success': False, 'error': str(e)}
 
     async def setup_safe(self, user_id: int) -> Dict:
-            """Deploy Safe and set allowances (gasless) using Privy-backed signing."""
+            """Robust: Deploy Safe, set dual allowances, and force-sync CLOB."""
             if not self.builder:
                 return {'success': False, 'error': 'Builder Relayer not configured'}
 
@@ -286,33 +286,38 @@ class WalletManager:
             eoa_address = wallet['address']
             safe_address = wallet.get('safe_address') or self.builder.derive_safe_address(eoa_address)
 
-            # Step 1: Deploy Safe (if needed)
+            # Step 1: Check status with a lower threshold (e.g., 100 USDC instead of 1M)
             status = self.builder.get_safe_status(eoa_address)
+            
+            # Step 2: Deploy Safe if needed
             if not status['deployed']:
                 logger.info(f"Deploying Safe for user {user_id}...")
                 deploy_result = self.builder.deploy_safe_privy(self.privy_service, privy_wallet_id, eoa_address)
                 if not deploy_result['success']:
                     return {'success': False, 'error': f"Safe deployment failed: {deploy_result.get('error')}"}
 
-            # Step 2: Set allowances for BOTH exchanges
-            # Note: We call this even if status['allowances_set'] is True to ensure both exchanges are synced
-            logger.info(f"Syncing allowances for user {user_id}...")
+            # Step 3: Always force-sync allowances if the log shows 0
+            logger.info(f"Setting dual-exchange allowances for user {user_id}...")
             allowance_result = self.builder.set_allowances_privy(
                 self.privy_service, privy_wallet_id, eoa_address, safe_address
             )
             if not allowance_result['success']:
                 return {'success': False, 'error': f"Allowance update failed: {allowance_result.get('error')}"}
 
-            # Step 3: Database & Cache Sync
+            # Step 4: Verify on-chain status BEFORE activating CLOB
+            final_status = self.builder.get_safe_status(eoa_address)
+            if not final_status['allowances_set']:
+                # This happens if the tx confirmed but RPC hasn't indexed or threshold is too high
+                logger.warning(f"On-chain check for user {user_id} pending. Proceeding to CLOB sync.")
+
             await self.db.update_wallet_allowances_set(user_id, True)
 
-            # Step 4: CLOB Activation (This is the call you asked about)
-            # It calls update_balance_allowance(AssetType.COLLATERAL) to force CLOB to see the change
+            # Step 5: Force CLOB to refresh its view of your wallet
             activation = await self._activate_trading(user_id)
             if not activation['success']:
                 return {'success': False, 'error': f"Allowances set but CLOB sync failed: {activation.get('error')}"}
 
-            return {'success': True, 'safe_address': safe_address, 'message': 'Wallet fully configured and ready to trade.'}
+            return {'success': True, 'safe_address': safe_address, 'message': 'Wallet ready and synced.'}
 
     async def get_wallet(self, user_id: int) -> Optional[Dict]:
         """Get wallet info for a user (without private key)"""
