@@ -274,54 +274,45 @@ class WalletManager:
             return {'success': False, 'error': str(e)}
 
     async def setup_safe(self, user_id: int) -> Dict:
-        """Deploy Safe and set allowances (gasless) using Privy-backed signing."""
-        if not self.builder:
-            return {'success': False, 'error': 'Builder Relayer not configured'}
+            """Deploy Safe and set allowances (gasless) using Privy-backed signing."""
+            if not self.builder:
+                return {'success': False, 'error': 'Builder Relayer not configured'}
 
-        wallet = await self.get_wallet(user_id)
-        if not wallet:
-            return {'success': False, 'error': 'No wallet found'}
+            wallet = await self.get_wallet(user_id)
+            if not wallet:
+                return {'success': False, 'error': 'No wallet found'}
 
-        privy_wallet_id = wallet.get('privy_wallet_id')
-        if not privy_wallet_id:
-            return {'success': False, 'error': 'No Privy wallet configured'}
+            privy_wallet_id = wallet.get('privy_wallet_id')
+            eoa_address = wallet['address']
+            safe_address = wallet.get('safe_address') or self.builder.derive_safe_address(eoa_address)
 
-        eoa_address = wallet['address']
-        safe_address = wallet.get('safe_address')
+            # Step 1: Deploy Safe (if needed)
+            status = self.builder.get_safe_status(eoa_address)
+            if not status['deployed']:
+                logger.info(f"Deploying Safe for user {user_id}...")
+                deploy_result = self.builder.deploy_safe_privy(self.privy_service, privy_wallet_id, eoa_address)
+                if not deploy_result['success']:
+                    return {'success': False, 'error': f"Safe deployment failed: {deploy_result.get('error')}"}
 
-        if not safe_address:
-            safe_address = self.builder.derive_safe_address(eoa_address)
-            await self.db.update_wallet_safe_address(user_id, safe_address)
-
-        # Step 1: Deploy Safe (if not already deployed)
-        status = self.builder.get_safe_status(eoa_address)
-        if not status['deployed']:
-            deploy_result = self.builder.deploy_safe_privy(
-                self.privy_service, privy_wallet_id, eoa_address
+            # Step 2: Set allowances for BOTH exchanges
+            # Note: We call this even if status['allowances_set'] is True to ensure both exchanges are synced
+            logger.info(f"Syncing allowances for user {user_id}...")
+            allowance_result = self.builder.set_allowances_privy(
+                self.privy_service, privy_wallet_id, eoa_address, safe_address
             )
-            if not deploy_result['success']:
-                return {'success': False, 'error': f"Failed to deploy Safe: {deploy_result.get('error')}"}
+            if not allowance_result['success']:
+                return {'success': False, 'error': f"Allowance update failed: {allowance_result.get('error')}"}
 
-        # Step 2: Set allowances (if not already set)
-        allowance_result = self.builder.set_allowances_privy(
-            self.privy_service, privy_wallet_id, eoa_address, safe_address
-        )
-        if not allowance_result['success']:
-            return {'success': False, 'error': f"Failed to set allowances: {allowance_result.get('error')}"}
+            # Step 3: Database & Cache Sync
+            await self.db.update_wallet_allowances_set(user_id, True)
 
-        # Re-verify on-chain AFTER setup
-        final_status = self.builder.get_safe_status(eoa_address)
-        if not final_status['allowances_set']:
-            return {'success': False, 'error': 'Allowances still not set after tx. Please retry.'}
+            # Step 4: CLOB Activation (This is the call you asked about)
+            # It calls update_balance_allowance(AssetType.COLLATERAL) to force CLOB to see the change
+            activation = await self._activate_trading(user_id)
+            if not activation['success']:
+                return {'success': False, 'error': f"Allowances set but CLOB sync failed: {activation.get('error')}"}
 
-        await self.db.update_wallet_allowances_set(user_id, True)
-
-        # Activate trading — derive CLOB API creds + sync allowances
-        activation = await self._activate_trading(user_id)
-        if not activation['success']:
-            logger.warning(f"Wallet ready but trading activation pending: {activation.get('error')}")
-
-        return {'success': True, 'safe_address': safe_address, 'message': 'Ready to trade.'}
+            return {'success': True, 'safe_address': safe_address, 'message': 'Wallet fully configured and ready to trade.'}
 
     async def get_wallet(self, user_id: int) -> Optional[Dict]:
         """Get wallet info for a user (without private key)"""

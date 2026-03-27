@@ -386,59 +386,60 @@ class BuilderRelayer:
             return {'success': False, 'error': str(e)}
 
     def set_allowances_privy(self, privy_service, wallet_id: str, eoa_address: str, safe_address: str) -> Dict:
-            """Set USDC allowances using Privy-backed signing."""
-            try:
-                client, _ = self._get_relay_client_privy(privy_service, wallet_id, eoa_address)
+        """Set USDC allowances for BOTH Polymarket exchanges using Privy-backed signing."""
+        try:
+            client, _ = self._get_relay_client_privy(privy_service, wallet_id, eoa_address)
 
-                MAX_UINT256 = 2**256 - 1
-                usdc_abi = [{
-                    "name": "approve", "type": "function",
-                    "inputs": [
-                        {"name": "spender", "type": "address"},
-                        {"name": "amount", "type": "uint256"}
-                    ],
-                    "outputs": [{"name": "", "type": "bool"}],
-                    "stateMutability": "nonpayable"
-                }]
-                usdc = self.w3.eth.contract(
-                    address=Web3.to_checksum_address(USDC_ADDRESS), abi=usdc_abi
-                )
-                
-                # Encode approval for NegRisk Exchange
-                calldata_negrisk = usdc.encode_abi("approve", [
-                    Web3.to_checksum_address(NEG_RISK_CTF_EXCHANGE), MAX_UINT256
-                ])
-                
-                # Encode approval for Standard Exchange
-                calldata_ctf = usdc.encode_abi("approve", [
-                    Web3.to_checksum_address(CTF_EXCHANGE), MAX_UINT256
-                ])
+            MAX_UINT256 = 2**256 - 1
+            usdc_abi = [{
+                "name": "approve", "type": "function",
+                "inputs": [
+                    {"name": "spender", "type": "address"},
+                    {"name": "amount", "type": "uint256"}
+                ],
+                "outputs": [{"name": "", "type": "bool"}],
+                "stateMutability": "nonpayable"
+            }]
+            usdc = self.w3.eth.contract(
+                address=Web3.to_checksum_address(USDC_ADDRESS), abi=usdc_abi
+            )
+            
+            # 1. Create calldata for Standard CTF Exchange
+            calldata_ctf = usdc.encode_abi("approve", [
+                Web3.to_checksum_address(CTF_EXCHANGE), MAX_UINT256
+            ])
+            
+            # 2. Create calldata for NegRisk Exchange
+            calldata_negrisk = usdc.encode_abi("approve", [
+                Web3.to_checksum_address(NEG_RISK_CTF_EXCHANGE), MAX_UINT256
+            ])
 
-                from py_builder_relayer_client.models import SafeTransaction, OperationType
-                
-                # Create two separate transaction objects
-                txn_negrisk = SafeTransaction(to=USDC_ADDRESS, data=calldata_negrisk, value="0", operation=OperationType.Call)
-                txn_ctf = SafeTransaction(to=USDC_ADDRESS, data=calldata_ctf, value="0", operation=OperationType.Call)
+            from py_builder_relayer_client.models import SafeTransaction, OperationType
+            
+            # 3. Create two transactions
+            tx_ctf = SafeTransaction(to=USDC_ADDRESS, data=calldata_ctf, value="0", operation=OperationType.Call)
+            tx_negrisk = SafeTransaction(to=USDC_ADDRESS, data=calldata_negrisk, value="0", operation=OperationType.Call)
 
-                # The relayer allows you to pass an array of transactions to batch them together
-                response = client.execute([txn_negrisk, txn_ctf], "Approve USDC for both CTF Exchanges")
-                
-                result = client.poll_until_state(
-                    transaction_id=response.transaction_id,
-                    states=["STATE_CONFIRMED"],
-                    fail_state="STATE_FAILED",
-                    max_polls=20,
-                    poll_frequency=3000,
-                )
+            # 4. Execute them as a single BATCH
+            response = client.execute([tx_ctf, tx_negrisk], "Approve both Polymarket exchanges")
+            
+            result = client.poll_until_state(
+                transaction_id=response.transaction_id,
+                states=["STATE_CONFIRMED"],
+                fail_state="STATE_FAILED",
+                max_polls=20,
+                poll_frequency=3000,
+            )
 
-                if result:
-                    logger.info(f"Allowances set for Safe {safe_address} (Privy-backed)")
-                    return {'success': True, 'tx_hash': response.transaction_hash}
-                return {'success': False, 'error': 'Allowance tx timed out'}
+            if result:
+                logger.info(f"✅ Both allowances set for Safe {safe_address} (Privy-backed)")
+                return {'success': True, 'tx_hash': response.transaction_hash}
+            return {'success': False, 'error': 'Allowance batch tx timed out'}
 
-            except Exception as e:
-                logger.error(f"Error setting allowances (Privy): {e}", exc_info=True)
-                return {'success': False, 'error': str(e)}
+        except Exception as e:
+            logger.error(f"Error setting allowances (Privy): {e}", exc_info=True)
+            return {'success': False, 'error': str(e)}
+            
 
     def withdraw_from_safe_privy(self, privy_service, wallet_id: str, eoa_address: str,
                                   safe_address: str, to_address: str, amount: float) -> Dict:
@@ -549,23 +550,19 @@ class BuilderRelayer:
                         abi=usdc_abi
                     )
                     
-                    # 1. Check NegRisk Exchange allowance
-                    allowance_negrisk = usdc.functions.allowance(
-                        Web3.to_checksum_address(safe_address),
-                        Web3.to_checksum_address(NEG_RISK_CTF_EXCHANGE)
-                    ).call()
-                    
-                    # 2. Check Standard CTF Exchange allowance
                     allowance_ctf = usdc.functions.allowance(
                         Web3.to_checksum_address(safe_address),
                         Web3.to_checksum_address(CTF_EXCHANGE)
                     ).call()
                     
-                    # Threshold (e.g., 1,000,000 USDC)
-                    threshold = 1_000_000 * 1_000_000
+                    # Check NegRisk
+                    allowance_negrisk = usdc.functions.allowance(
+                        Web3.to_checksum_address(safe_address),
+                        Web3.to_checksum_address(NEG_RISK_CTF_EXCHANGE)
+                    ).call()
                     
-                    # BOTH must be approved to be considered fully set
-                    allowances_set = (allowance_negrisk > threshold) and (allowance_ctf > threshold)
+                    # Allowances are set only if BOTH are > 1M USDC
+                    allowances_set = (allowance_ctf > 10**12) and (allowance_negrisk > 10**12)
                     
                 except Exception as e:
                     logger.debug(f"Error checking allowances: {e}")
