@@ -303,12 +303,11 @@ class WalletManager:
                 return {'success': False, 'error': f"Failed to deploy Safe: {deploy_result.get('error')}"}
 
         # Step 2: Set allowances (if not already set)
-        if not status['allowances_set']:
-            allowance_result = self.builder.set_allowances_privy(
-                self.privy_service, privy_wallet_id, eoa_address, safe_address
-            )
-            if not allowance_result['success']:
-                return {'success': False, 'error': f"Failed to set allowances: {allowance_result.get('error')}"}
+        allowance_result = self.builder.set_allowances_privy(
+            self.privy_service, privy_wallet_id, eoa_address, safe_address
+        )
+        if not allowance_result['success']:
+            return {'success': False, 'error': f"Failed to set allowances: {allowance_result.get('error')}"}
 
         # Re-verify on-chain AFTER setup
         final_status = self.builder.get_safe_status(eoa_address)
