@@ -134,36 +134,56 @@ class PolymarketClient:
             logger.error(f"Exception fetching profile: {e}")
             return {}
 
+    async def get_total_pnl(self, wallet_address: str) -> float:
+        """Fetch all-time PnL from the official Polymarket PnL API (matches UI exactly)."""
+        try:
+            url = f"https://user-pnl-api.polymarket.com/user-pnl"
+            params = {
+                'user_address': wallet_address,
+                'interval': 'all',
+                'fidelity': '12h'
+            }
+            response = await self.client.get(url, params=params, timeout=15.0)
+            if response.status_code == 200:
+                data = response.json()
+                if data and isinstance(data, list):
+                    return float(data[-1].get('p', 0) or 0)
+        except Exception as e:
+            logger.error(f"Error fetching total PnL: {e}")
+        return 0.0
+
     async def get_wallet_stats(
-        self, 
+        self,
         wallet_address: str,
         use_cache: bool = True,
         cache_ttl: int = 300
     ) -> dict:
         """Get comprehensive wallet statistics with caching"""
         cache_key = f"stats:{wallet_address.lower()}"
-        
+
         if use_cache:
             cached = await self._get_cached(cache_key, cache_ttl)
             if cached:
                 return cached
-        
+
         wallet_address = wallet_address.lower()
-        
+
         # Fetch all data concurrently
         profile_task = self.get_profile(wallet_address)
         open_pos_task = self.get_open_positions(wallet_address)
         closed_pos_task = self.get_closed_positions(wallet_address)
         activity_all_task = self.get_activity(wallet_address)
-        
-        profile, open_positions, closed_positions, all_activity = await asyncio.gather(
+        pnl_task = self.get_total_pnl(wallet_address)
+
+        profile, open_positions, closed_positions, all_activity, official_total_pnl = await asyncio.gather(
             profile_task,
             open_pos_task,
             closed_pos_task,
             activity_all_task,
+            pnl_task,
             return_exceptions=True
         )
-        
+
         # Handle exceptions
         if isinstance(profile, Exception):
             logger.error(f"Error fetching profile: {profile}")
@@ -177,113 +197,102 @@ class PolymarketClient:
         if isinstance(all_activity, Exception):
             logger.error(f"Error fetching all activity: {all_activity}")
             all_activity = []
-        
-        # ===== Calculate All-Time PnL =====
-        # Open positions have both cashPnl (unrealized on current size) and
-        # realizedPnl (from partial sells). Both must be counted.
-        total_pnl = 0.0
-        open_pnl = 0.0
-        closed_pnl = 0.0
+        if isinstance(official_total_pnl, Exception):
+            logger.error(f"Error fetching official PnL: {official_total_pnl}")
+            official_total_pnl = 0.0
+
+        # ===== Calculate buys total for ROI denominator =====
+        buys_total = 0.0
+        for activity in all_activity:
+            try:
+                if isinstance(activity, dict) and activity.get('type') == 'TRADE' and activity.get('side') == 'BUY':
+                    buys_total += float(activity.get('usdcSize', 0) or 0)
+            except (ValueError, TypeError):
+                continue
+
+        # Current value of active (non-resolved) positions only
+        current_portfolio_value = 0.0
+        for pos in open_positions:
+            try:
+                if not pos.get('redeemable'):
+                    current_portfolio_value += float(pos.get('currentValue', 0) or 0)
+            except (ValueError, TypeError):
+                continue
+
+        # Use the official Polymarket PnL API value (matches what Polymarket UI shows)
+        total_pnl = official_total_pnl
+        open_pnl = current_portfolio_value
+        # Realized = total minus unrealized open positions
+        closed_pnl = total_pnl - open_pnl
+
+        # ===== Calculate Win Rate (resolved positions only) =====
+        # Sources:
+        # 1. Redeemable open positions: resolved markets not yet claimed.
+        #    curPrice >= 0.99 = won, curPrice <= 0.01 = lost.
+        # 2. Activity REDEEM events: already redeemed (gone from positions API).
+        #    usdcSize > 0 = won (received payout), usdcSize == 0 = lost (worthless).
+        winning_positions = 0
+        losing_positions = 0
 
         for pos in open_positions:
             try:
-                cash_pnl = float(pos.get('cashPnl', 0) or 0)
-                realized_on_open = float(pos.get('realizedPnl', 0) or 0)
-                open_pnl += cash_pnl + realized_on_open
-                total_pnl += cash_pnl + realized_on_open
-            except (ValueError, TypeError):
-                continue
-
-        for pos in closed_positions:
-            try:
-                realized_pnl = float(pos.get('realizedPnl', 0) or 0)
-                closed_pnl += realized_pnl
-                total_pnl += realized_pnl
-            except (ValueError, TypeError):
-                continue
-
-        # ===== Calculate Win Rate (grouped by market) =====
-        # Group positions by conditionId so the same market isn't double-counted.
-        # Aggregate PnL per market, then count wins/losses.
-        market_pnl = {}  # conditionId -> total pnl
-
-        for pos in closed_positions:
-            try:
-                cid = pos.get('conditionId', pos.get('asset', ''))
-                realized_pnl = float(pos.get('realizedPnl', 0) or 0)
-                market_pnl[cid] = market_pnl.get(cid, 0) + realized_pnl
-            except (ValueError, TypeError):
-                continue
-
-        for pos in open_positions:
-            try:
-                cid = pos.get('conditionId', pos.get('asset', ''))
-                cur_price = float(pos.get('curPrice', -1) or -1)
-                initial_value = float(pos.get('initialValue', 0) or 0)
-                if initial_value <= 0:
+                if not pos.get('redeemable'):
                     continue
-                # Only count resolved open positions (price hit 0 or ~1)
-                if cur_price == 0:
-                    pnl_val = -initial_value
-                elif cur_price >= 0.99:
-                    cash_pnl = float(pos.get('cashPnl', 0) or 0)
-                    pnl_val = cash_pnl
-                else:
-                    continue  # Still active, skip for win rate
-                market_pnl[cid] = market_pnl.get(cid, 0) + pnl_val
+                cur_price_raw = pos.get('curPrice')
+                if cur_price_raw is None:
+                    continue
+                cur_price = float(cur_price_raw)
+                if cur_price >= 0.99:
+                    winning_positions += 1
+                elif cur_price <= 0.01:
+                    losing_positions += 1
             except (ValueError, TypeError):
                 continue
 
-        winning_positions = sum(1 for pnl in market_pnl.values() if pnl > 0)
-        losing_positions = sum(1 for pnl in market_pnl.values() if pnl < 0)
+        for activity in all_activity:
+            try:
+                if activity.get('type') != 'REDEEM':
+                    continue
+                usdc = float(activity.get('usdcSize', 0) or 0)
+                if usdc > 0:
+                    winning_positions += 1
+                else:
+                    losing_positions += 1
+            except (ValueError, TypeError):
+                continue
+
         total_resolved = winning_positions + losing_positions
         win_rate = (winning_positions / total_resolved) * 100 if total_resolved > 0 else None
 
-        # ===== Calculate ROI (All-Time, Position-Based) =====
-        total_invested = 0.0
-
-        # Open positions: totalBought * avgPrice captures the FULL investment
-        # (including portions already sold), which matches the full PnL we computed.
-        for pos in open_positions:
-            try:
-                total_bought = float(pos.get('totalBought', 0) or 0)
-                avg_price = float(pos.get('avgPrice', 0) or 0)
-                cost_basis = total_bought * avg_price
-                total_invested += cost_basis
-            except (ValueError, TypeError):
-                continue
-
-        # Closed positions: same approach
-        for pos in closed_positions:
-            try:
-                total_bought = float(pos.get('totalBought', 0) or 0)  # shares
-                avg_price = float(pos.get('avgPrice', 0) or 0)        # price per share
-                cost_basis = total_bought * avg_price                  # USD invested
-                total_invested += cost_basis
-            except (ValueError, TypeError):
-                continue
-
-        # Calculate all-time ROI
+        # ===== Calculate ROI =====
+        # ROI = total_pnl / total_buys (total USDC ever spent buying positions)
+        total_invested = buys_total
         roi = (total_pnl / total_invested) * 100 if total_invested > 1.0 else 0.0
         
-        # ===== Calculate 7-Day Volume =====
+        # ===== Calculate 7-Day Volume (TRADE events only, not REDEEMs) =====
         seven_days_ago = datetime.now().timestamp() - (7 * 24 * 60 * 60)
         volume_7d = 0.0
-        
+
         for trade in all_activity:
             try:
+                if trade.get('type') != 'TRADE':
+                    continue
                 trade_timestamp = float(trade.get('timestamp', 0))
                 if trade_timestamp > 9999999999:
                     trade_timestamp = trade_timestamp / 1000
-                
+
                 if trade_timestamp >= seven_days_ago:
                     usdc_size = float(trade.get('usdcSize', 0) or 0)
                     volume_7d += usdc_size
             except (ValueError, TypeError):
                 continue
-        
-        total_positions = len(open_positions) + len(closed_positions)
-        total_trades = len(all_activity)
+
+        # Total positions = unique markets ever participated in (matches Polymarket's "Predictions" count)
+        total_positions = len(set(
+            a.get('conditionId', '') for a in all_activity if a.get('conditionId')
+        ))
+        # Total trades = TRADE events only (excludes REDEEMs)
+        total_trades = sum(1 for a in all_activity if a.get('type') == 'TRADE')
         
         profile_name = profile.get('name') or profile.get('pseudonym')
         
