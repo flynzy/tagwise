@@ -259,15 +259,15 @@ class ConfidenceScorer:
 def get_confidence_emoji(score: int) -> str:
     """Get emoji representation of confidence score."""
     if score >= 5:
-        return "🔥"  # Extremely confident
+        return ""  # Extremely confident
     elif score >= 4:
-        return "✅"  # Very confident
+        return ""  # Very confident
     elif score >= 3:
-        return "⚖️"  # Neutral
+        return ""  # Neutral
     elif score >= 2:
-        return "⚠️"  # Low confidence
+        return ""  # Low confidence
     else:
-        return "❌"  # Very low confidence
+        return ""  # Very low confidence
 
 
 def format_confidence_for_alert(confidence: ConfidenceScore, is_pro: bool = False) -> str:
