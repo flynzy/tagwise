@@ -111,6 +111,11 @@ class TradingCommands:
             await query.edit_message_text("⏳ Loading won markets...")
             await self.bot.menu_handlers.show_won_markets(query, user_id, wallet_db_id)
 
+        elif action.startswith("lostmarkets_"):
+            wallet_db_id = int(action.replace("lostmarkets_", ""))
+            await query.edit_message_text("⏳ Loading lost markets...")
+            await self.bot.menu_handlers.show_lost_markets(query, user_id, wallet_db_id)
+
         elif action == "add":
             await query.edit_message_text(
                 "➕ *Add New Wallet*\n\n"

@@ -541,26 +541,56 @@ class WalletManager:
             logger.error(f"Error fetching Polymarket balance: {e}")
             return 0.0
 
-    async def get_won_markets_for_wallet(self, wallet: Dict) -> Dict:
-        """Get won/claimable markets for a specific wallet dict (multi-wallet support)."""
+    async def get_positions_summary_for_wallet(self, wallet: Dict) -> Dict:
+        """
+        Fetch and categorise all positions for a wallet.
+        Returns {
+          "open": [...],
+          "won": [...],   # redeemable=True, pnl > 0
+          "lost": [...],  # resolved but losing (currentValue < 0.01 or pnl <= 0 and resolved)
+          "success": bool
+        }
+        """
         try:
             safe_address = wallet.get('safe_address')
             if not safe_address:
-                return {"success": False, "error": "No Safe address found", "markets": []}
+                return {"success": False, "open": [], "won": [], "lost": []}
             loop = asyncio.get_running_loop()
             positions = await loop.run_in_executor(None, lambda: _fetch_positions(safe_address))
-            markets = []
+            open_pos, won_pos, lost_pos = [], [], []
             for pos in positions or []:
                 title = pos.get("title") or pos.get("market", "Unknown market")
                 pnl = float(pos.get("cashPnl", 0) or pos.get("pnl", 0) or 0.0)
                 size = float(pos.get("size", 0.0) or 0.0)
+                current_value = float(pos.get("currentValue", 0) or 0.0)
                 redeemable = bool(pos.get("redeemable"))
+                outcome = pos.get("outcome", "")
+                entry = {"title": title, "pnl": pnl, "size": size, "current_value": current_value, "outcome": outcome}
+
                 if redeemable and pnl > 0:
-                    markets.append({"title": title, "pnl": pnl, "size": size, "redeemable": redeemable})
-            return {"success": True, "markets": markets}
+                    won_pos.append(entry)
+                elif redeemable and pnl <= 0:
+                    # Resolved but lost
+                    lost_pos.append(entry)
+                elif current_value < 0.01 and size > 0:
+                    # Likely worthless/lost market even if redeemable flag not set yet
+                    lost_pos.append(entry)
+                elif current_value >= 0.01:
+                    open_pos.append(entry)
+            return {"success": True, "open": open_pos, "won": won_pos, "lost": lost_pos}
         except Exception as e:
-            logger.error(f"Error getting won markets for wallet: {e}", exc_info=True)
-            return {"success": False, "error": str(e), "markets": []}
+            logger.error(f"Error getting positions summary: {e}", exc_info=True)
+            return {"success": False, "open": [], "won": [], "lost": []}
+
+    async def get_won_markets_for_wallet(self, wallet: Dict) -> Dict:
+        """Get won/claimable markets for a specific wallet dict (multi-wallet support)."""
+        result = await self.get_positions_summary_for_wallet(wallet)
+        return {"success": result["success"], "markets": result.get("won", [])}
+
+    async def get_lost_markets_for_wallet(self, wallet: Dict) -> Dict:
+        """Get lost markets for a specific wallet dict."""
+        result = await self.get_positions_summary_for_wallet(wallet)
+        return {"success": result["success"], "markets": result.get("lost", [])}
 
     async def get_won_markets(self, user_id: int) -> Dict:
         """

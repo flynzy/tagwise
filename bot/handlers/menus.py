@@ -288,13 +288,13 @@ Track Polymarket wallets and get notified of their trades.
                 await source.message.reply_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
             return
 
-        # Fetch all data concurrently
+        # Fetch all data concurrently — use positions summary for accurate categorization
         balances_task = self.wallet_manager.get_balances_for_wallet(wallet)
         stats_task = self.polymarket.get_wallet_stats(safe)
-        won_markets_task = self.wallet_manager.get_won_markets_for_wallet(wallet)
+        positions_task = self.wallet_manager.get_positions_summary_for_wallet(wallet)
 
-        balances, stats, won_markets_result = await asyncio.gather(
-            balances_task, stats_task, won_markets_task,
+        balances, stats, positions_summary = await asyncio.gather(
+            balances_task, stats_task, positions_task,
             return_exceptions=True
         )
 
@@ -304,9 +304,9 @@ Track Polymarket wallets and get notified of their trades.
         if isinstance(stats, Exception):
             logger.error(f"Portfolio: error fetching stats: {stats}")
             stats = {}
-        if isinstance(won_markets_result, Exception):
-            logger.error(f"Portfolio: error fetching won markets: {won_markets_result}")
-            won_markets_result = {"markets": [], "success": False}
+        if isinstance(positions_summary, Exception):
+            logger.error(f"Portfolio: error fetching positions: {positions_summary}")
+            positions_summary = {"open": [], "won": [], "lost": [], "success": False}
 
         usdc_balance = balances.get('polymarket_usdc', 0.0)
         total_pnl = stats.get('pnl_all_time', 0.0)
@@ -319,8 +319,13 @@ Track Polymarket wallets and get notified of their trades.
         total_trades = stats.get('total_trades', 0)
         total_positions = stats.get('total_positions', 0)
         volume_7d = stats.get('volume_7d', 0.0)
-        open_positions_count = stats.get('open_positions_count', 0)
-        claimable_count = len(won_markets_result.get('markets', []))
+
+        open_positions = positions_summary.get('open', [])
+        won_positions = positions_summary.get('won', [])
+        lost_positions = positions_summary.get('lost', [])
+        open_count = len(open_positions)
+        won_count = len(won_positions)
+        lost_count = len(lost_positions)
 
         def fmt_pnl(v: float) -> str:
             sign = "+" if v >= 0 else "-"
@@ -348,15 +353,17 @@ Track Polymarket wallets and get notified of their trades.
             f"├ 7d Volume: ${volume_7d:,.2f}\n"
             f"└ Markets Traded: {total_positions:,}\n\n"
             f"📂 *Positions*\n"
-            f"├ Open: {open_positions_count}\n"
-            f"└ Claimable (Won): {claimable_count}\n"
+            f"├ Open: {open_count}\n"
+            f"├ Lost: {lost_count}\n"
+            f"└ Claimable (Won): {won_count}\n"
         )
 
         refresh_cb = f"wallet_portfolio_{wallet_db_id}" if wallet_db_id else "wallet_portfolio"
         keyboard = [
             [
-                InlineKeyboardButton("📋 Open Positions", callback_data=f"wallet_positions_{wallet_db_id}"),
-                InlineKeyboardButton("🏆 Markets Won", callback_data=f"wallet_wonmarkets_{wallet_db_id}"),
+                InlineKeyboardButton("📋 Open", callback_data=f"wallet_positions_{wallet_db_id}"),
+                InlineKeyboardButton("🏆 Won", callback_data=f"wallet_wonmarkets_{wallet_db_id}"),
+                InlineKeyboardButton("❌ Lost", callback_data=f"wallet_lostmarkets_{wallet_db_id}"),
             ],
             [InlineKeyboardButton("💸 Claim Winnings", callback_data="wallet_claim")],
             [InlineKeyboardButton("🔄 Refresh", callback_data=refresh_cb)],
@@ -478,6 +485,48 @@ Track Polymarket wallets and get notified of their trades.
             await source.message.reply_text(msg, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(keyboard))
 
     
+    async def show_lost_markets(self, source, user_id: int, wallet_db_id: int):
+        """Show resolved lost markets for a specific wallet."""
+        is_callback = hasattr(source, 'edit_message_text')
+        wallet = await self.wallet_manager.get_wallet_by_id(user_id, wallet_db_id)
+        if not wallet or not wallet.get('safe_address'):
+            keyboard = [[InlineKeyboardButton("🔙 Back", callback_data=f"wallet_portfolio_{wallet_db_id}")]]
+            msg = "⚠️ Wallet not found or not set up."
+            if is_callback:
+                await source.edit_message_text(msg, reply_markup=InlineKeyboardMarkup(keyboard))
+            return
+
+        wname = wallet.get('wallet_name') or f"Wallet {wallet.get('wallet_index', 1)}"
+
+        try:
+            lost_result = await self.wallet_manager.get_lost_markets_for_wallet(wallet)
+        except Exception as e:
+            logger.error(f"Error fetching lost markets: {e}")
+            lost_result = {"success": False, "markets": []}
+
+        keyboard = [[InlineKeyboardButton("🔙 Back to Portfolio", callback_data=f"wallet_portfolio_{wallet_db_id}")]]
+
+        markets = lost_result.get("markets", [])
+        if not markets:
+            msg = f"❌ *{wname} — Markets Lost*\n\nNo resolved lost markets found."
+            if is_callback:
+                await source.edit_message_text(msg, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(keyboard))
+            return
+
+        msg = f"❌ *{wname} — Markets Lost* ({len(markets)})\n\n"
+        for m in markets[:10]:
+            title = escape_markdown(m['title'])[:60]
+            pnl = m.get('pnl', 0.0)
+            pnl_str = f"{pnl:+.2f}" if pnl else "−$0.00"
+            msg += f"❌ {title}\n  └ {pnl_str} USDC\n\n"
+        if len(markets) > 10:
+            msg += f"_...and {len(markets) - 10} more_\n"
+
+        if is_callback:
+            await source.edit_message_text(msg, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(keyboard))
+        else:
+            await source.message.reply_text(msg, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(keyboard))
+
     async def show_copytrade_page(self, query, user_id: int):
         """Show copy trading page - delegates to TradingCommands."""
         # Just redirect to the trading commands version
