@@ -196,12 +196,11 @@ Track Polymarket wallets and get notified of their trades.
         )
     
     async def show_trading_wallet(self, source, user_id: int, context=None):
-        """Show trading wallet page. Source can be a query (callback) or update (command)."""
-        # Detect if called from a message command or a callback button
+        """Show trading wallet page with list of all wallets. Source can be a query or update."""
         is_callback = hasattr(source, 'edit_message_text')
 
-        wallet = await self.wallet_manager.get_wallet(user_id)
-        if not wallet:
+        wallets = await self.wallet_manager.get_wallets(user_id)
+        if not wallets:
             keyboard = [
                 [InlineKeyboardButton("🔄 Refresh", callback_data="wallet_refresh")],
                 [InlineKeyboardButton("🔙 Back to Menu", callback_data="menu_main")],
@@ -219,46 +218,58 @@ Track Polymarket wallets and get notified of their trades.
                 await source.message.reply_text(text, parse_mode="Markdown", reply_markup=markup)
             return
 
-        status = await self.wallet_manager.get_wallet_status(user_id)
-        if isinstance(status, Exception):
-            logger.error(f"Error fetching status: {status}")
-            status = {'safe_address': wallet.get('safe_address', 'Not set'), 'ready_to_trade': False}
+        # Fetch balances for all wallets concurrently
+        balance_tasks = []
+        for w in wallets:
+            # Use the safe_address to fetch polymarket balance via positions API stub
+            balance_tasks.append(self.wallet_manager.get_balances_for_wallet(w))
+        balances_list = await asyncio.gather(*balance_tasks, return_exceptions=True)
 
-        safe = status.get("safe_address", "Not set")
-        ready = status.get("ready_to_trade", False)
-        status_text = "Ready to trade ✅" if ready else "⚠️ Setup required"
+        text = "*💳 Your Trading Wallets*\n\n"
+        text += "_Send native USDC.e (Polygon) to deposit._\n\n"
 
-        message = (
-            f"💳 *Your Trading Wallet*\n\n"
-            f"*Send native USDC.e (Polygon) to your Polymarket address to deposit.*\n\n"
-            f"*Polymarket Address:*\n`{safe}`\n\n"
-            f"*Status:* {status_text}\n"
-        )
+        keyboard = []
+        for i, w in enumerate(wallets):
+            bal = balances_list[i]
+            usdc = bal.get('polymarket_usdc', 0.0) if isinstance(bal, dict) else 0.0
+            wname = w.get('wallet_name') or f"Wallet {w['wallet_index']}"
+            active_marker = " ✅" if w.get('is_active') else ""
+            safe = w.get('safe_address', 'Not set') or 'Not set'
+            short_safe = f"{safe[:6]}...{safe[-4:]}" if safe and safe != 'Not set' else 'Not set'
+            text += f"*{wname}*{active_marker}\n`{short_safe}` — ${usdc:.2f} USDC\n\n"
+            keyboard.append([InlineKeyboardButton(
+                f"📊 {wname} Portfolio", callback_data=f"wallet_portfolio_{w['id']}"
+            )])
 
-        keyboard = [
-            [InlineKeyboardButton("📊 Portfolio", callback_data="wallet_portfolio")],
-            [InlineKeyboardButton("🔄 Refresh", callback_data="wallet_refresh")],
-        ]
-        if not ready:
-            keyboard.append([InlineKeyboardButton("⚙️ Complete Setup (Gasless)", callback_data="wallet_setup")])
+        # Action buttons
+        if len(wallets) < 3:
+            keyboard.append([InlineKeyboardButton("➕ Add Wallet", callback_data="wallet_add")])
+        if len(wallets) > 1:
+            keyboard.append([InlineKeyboardButton("🔑 Set Active Wallet", callback_data="wallet_setactive")])
         keyboard.extend([
-            [InlineKeyboardButton("💸 Claim winnings", callback_data="wallet_claim")],
-            [InlineKeyboardButton("📤 Withdraw USDC", callback_data="wallet_withdraw")],
-            [InlineKeyboardButton("🗑️ Delete Wallet", callback_data="wallet_delete")],
+            [InlineKeyboardButton("📤 Withdraw USDC", callback_data="wallet_withdraw_pick")],
+            [InlineKeyboardButton("🗑️ Delete a Wallet", callback_data="wallet_delete_pick")],
+            [InlineKeyboardButton("🔄 Refresh", callback_data="wallet_refresh")],
             [InlineKeyboardButton("🔙 Back to Menu", callback_data="menu_main")],
         ])
         markup = InlineKeyboardMarkup(keyboard)
 
         if is_callback:
-            await source.edit_message_text(message, parse_mode="Markdown", reply_markup=markup)
+            await source.edit_message_text(text, parse_mode="Markdown", reply_markup=markup)
         else:
-            await source.message.reply_text(message, parse_mode="Markdown", reply_markup=markup)
+            await source.message.reply_text(text, parse_mode="Markdown", reply_markup=markup)
 
-    async def show_portfolio(self, source, user_id: int):
-        """Show detailed portfolio statistics for the user's trading wallet."""
+    async def show_portfolio(self, source, user_id: int, wallet_db_id: int = None):
+        """Show detailed portfolio statistics for a specific wallet (or active wallet)."""
         is_callback = hasattr(source, 'edit_message_text')
 
-        wallet = await self.wallet_manager.get_wallet(user_id)
+        if wallet_db_id:
+            wallet = await self.wallet_manager.get_wallet_by_id(user_id, wallet_db_id)
+        else:
+            wallet = await self.wallet_manager.get_wallet(user_id)
+            if wallet:
+                wallet_db_id = wallet.get('id')
+
         if not wallet:
             keyboard = [[InlineKeyboardButton("🔙 Back to Wallet", callback_data="menu_trading_wallet")]]
             text = "❌ No wallet found. Set up your trading wallet first."
@@ -269,6 +280,8 @@ Track Polymarket wallets and get notified of their trades.
             return
 
         safe = wallet.get('safe_address')
+        wname = wallet.get('wallet_name') or f"Wallet {wallet.get('wallet_index', 1)}"
+
         if not safe:
             keyboard = [[InlineKeyboardButton("🔙 Back to Wallet", callback_data="menu_trading_wallet")]]
             text = "⚠️ Wallet setup not complete. Your Polymarket address is not ready yet."
@@ -279,9 +292,9 @@ Track Polymarket wallets and get notified of their trades.
             return
 
         # Fetch all data concurrently
-        balances_task = self.wallet_manager.get_balances(user_id)
+        balances_task = self.wallet_manager.get_balances_for_wallet(wallet)
         stats_task = self.polymarket.get_wallet_stats(safe)
-        won_markets_task = self.wallet_manager.get_won_markets(user_id)
+        won_markets_task = self.wallet_manager.get_won_markets_for_wallet(wallet)
 
         balances, stats, won_markets_result = await asyncio.gather(
             balances_task, stats_task, won_markets_task,
@@ -298,14 +311,11 @@ Track Polymarket wallets and get notified of their trades.
             logger.error(f"Portfolio: error fetching won markets: {won_markets_result}")
             won_markets_result = {"markets": [], "success": False}
 
-        # ── Extract values ──
         usdc_balance = balances.get('polymarket_usdc', 0.0)
-
         total_pnl = stats.get('pnl_all_time', 0.0)
         realized_pnl = stats.get('realized_pnl', 0.0)
         open_pnl = stats.get('open_pnl', 0.0)
         roi = stats.get('roi_all_time', 0.0)
-
         win_rate = stats.get('win_rate')
         winning = stats.get('winning_positions', 0)
         losing = stats.get('losing_positions', 0)
@@ -313,10 +323,8 @@ Track Polymarket wallets and get notified of their trades.
         total_positions = stats.get('total_positions', 0)
         volume_7d = stats.get('volume_7d', 0.0)
         open_positions_count = stats.get('open_positions_count', 0)
-
         claimable_count = len(won_markets_result.get('markets', []))
 
-        # ── Formatting helpers ──
         def fmt_pnl(v: float) -> str:
             sign = "+" if v >= 0 else "-"
             return f"{sign}${abs(v):.2f}"
@@ -327,7 +335,7 @@ Track Polymarket wallets and get notified of their trades.
         pnl_emoji = "🟢" if total_pnl >= 0 else "🔴"
 
         message = (
-            f"📊 *Portfolio*\n\n"
+            f"📊 *{wname} Portfolio*\n\n"
             f"💰 *Balance*\n"
             f"├ USDC: ${usdc_balance:.2f}\n"
             f"└ Positions Value: ${open_pnl:.2f}\n\n"
@@ -347,9 +355,14 @@ Track Polymarket wallets and get notified of their trades.
             f"└ Claimable (Won): {claimable_count}\n"
         )
 
+        refresh_cb = f"wallet_portfolio_{wallet_db_id}" if wallet_db_id else "wallet_portfolio"
         keyboard = [
-            [InlineKeyboardButton("🔄 Refresh", callback_data="wallet_portfolio")],
+            [
+                InlineKeyboardButton("📋 Open Positions", callback_data=f"wallet_positions_{wallet_db_id}"),
+                InlineKeyboardButton("🏆 Markets Won", callback_data=f"wallet_wonmarkets_{wallet_db_id}"),
+            ],
             [InlineKeyboardButton("💸 Claim Winnings", callback_data="wallet_claim")],
+            [InlineKeyboardButton("🔄 Refresh", callback_data=refresh_cb)],
             [InlineKeyboardButton("🔙 Back to Wallet", callback_data="menu_trading_wallet")],
         ]
         markup = InlineKeyboardMarkup(keyboard)
@@ -358,6 +371,114 @@ Track Polymarket wallets and get notified of their trades.
             await source.edit_message_text(message, parse_mode="Markdown", reply_markup=markup)
         else:
             await source.message.reply_text(message, parse_mode="Markdown", reply_markup=markup)
+
+    async def show_open_positions(self, source, user_id: int, wallet_db_id: int):
+        """Show open positions for a specific wallet."""
+        is_callback = hasattr(source, 'edit_message_text')
+        wallet = await self.wallet_manager.get_wallet_by_id(user_id, wallet_db_id)
+        if not wallet or not wallet.get('safe_address'):
+            keyboard = [[InlineKeyboardButton("🔙 Back", callback_data=f"wallet_portfolio_{wallet_db_id}")]]
+            msg = "⚠️ Wallet not found or not set up."
+            if is_callback:
+                await source.edit_message_text(msg, reply_markup=InlineKeyboardMarkup(keyboard))
+            return
+
+        safe = wallet['safe_address']
+        wname = wallet.get('wallet_name') or f"Wallet {wallet.get('wallet_index', 1)}"
+
+        try:
+            raw_positions = await self.polymarket.get_open_positions(safe)
+        except Exception as e:
+            raw_positions = None
+            logger.error(f"Error fetching positions: {e}")
+
+        keyboard = [[InlineKeyboardButton("🔙 Back to Portfolio", callback_data=f"wallet_portfolio_{wallet_db_id}")]]
+
+        if not raw_positions:
+            msg = f"📋 *{wname} — Open Positions*\n\nNo open positions."
+            if is_callback:
+                await source.edit_message_text(msg, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(keyboard))
+            return
+
+        total_value = 0
+        position_list = []
+        for pos in raw_positions:
+            try:
+                current_value = float(pos.get("currentValue", 0) or 0)
+                if current_value < 0.01:
+                    continue
+                cash_pnl = float(pos.get("cashPnl", 0) or 0)
+                total_value += current_value
+                pnl_emoji = "🟢" if cash_pnl >= 0 else "🔴"
+                pnl_sign = "+" if cash_pnl >= 0 else "-"
+                position_list.append({
+                    "market": pos.get("title", "Unknown")[:60],
+                    "outcome": pos.get("outcome", ""),
+                    "value": current_value,
+                    "pnl": cash_pnl,
+                    "pnl_emoji": pnl_emoji,
+                    "pnl_sign": pnl_sign,
+                })
+            except (ValueError, TypeError):
+                continue
+
+        position_list.sort(key=lambda x: x["value"], reverse=True)
+
+        msg = f"📋 *{wname} — Open Positions*\n"
+        msg += f"_{len(position_list)} open | Total: ${total_value:.2f}_\n\n"
+        for pos in position_list[:10]:
+            title = pos['market'] + ("…" if len(pos['market']) >= 60 else "")
+            msg += f"`{title}`\n  ↳ {pos['outcome']} · ${pos['value']:.2f} · {pos['pnl_emoji']}{pos['pnl_sign']}${abs(pos['pnl']):.2f}\n\n"
+        if len(position_list) > 10:
+            msg += f"_...and {len(position_list) - 10} more_\n"
+
+        if is_callback:
+            await source.edit_message_text(msg, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(keyboard))
+        else:
+            await source.message.reply_text(msg, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(keyboard))
+
+    async def show_won_markets(self, source, user_id: int, wallet_db_id: int):
+        """Show claimable won markets for a specific wallet."""
+        is_callback = hasattr(source, 'edit_message_text')
+        wallet = await self.wallet_manager.get_wallet_by_id(user_id, wallet_db_id)
+        if not wallet or not wallet.get('safe_address'):
+            keyboard = [[InlineKeyboardButton("🔙 Back", callback_data=f"wallet_portfolio_{wallet_db_id}")]]
+            msg = "⚠️ Wallet not found or not set up."
+            if is_callback:
+                await source.edit_message_text(msg, reply_markup=InlineKeyboardMarkup(keyboard))
+            return
+
+        wname = wallet.get('wallet_name') or f"Wallet {wallet.get('wallet_index', 1)}"
+
+        try:
+            won_result = await self.wallet_manager.get_won_markets_for_wallet(wallet)
+        except Exception as e:
+            logger.error(f"Error fetching won markets: {e}")
+            won_result = {"success": False, "markets": []}
+
+        keyboard = [
+            [InlineKeyboardButton("💸 Claim All", callback_data="wallet_claim")],
+            [InlineKeyboardButton("🔙 Back to Portfolio", callback_data=f"wallet_portfolio_{wallet_db_id}")],
+        ]
+
+        markets = won_result.get("markets", [])
+        if not markets:
+            msg = f"🏆 *{wname} — Markets Won*\n\nNo claimable markets at this time."
+            if is_callback:
+                await source.edit_message_text(msg, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(keyboard))
+            return
+
+        msg = f"🏆 *{wname} — Markets Won* ({len(markets)} claimable)\n\n"
+        for m in markets[:10]:
+            title = escape_markdown(m['title'])[:60]
+            msg += f"✅ {title}\n  └ +${m['pnl']:.2f} USDC\n\n"
+        if len(markets) > 10:
+            msg += f"_...and {len(markets) - 10} more_\n"
+
+        if is_callback:
+            await source.edit_message_text(msg, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(keyboard))
+        else:
+            await source.message.reply_text(msg, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(keyboard))
 
     
     async def show_copytrade_page(self, query, user_id: int):

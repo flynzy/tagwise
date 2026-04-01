@@ -342,13 +342,102 @@ class WalletManager:
                 logger.error(f"Setup error for user {user_id}: {e}", exc_info=True)
                 return {'success': False, 'error': str(e)}
 
+    # ── Multi-wallet helpers ─────────────────────────────────────────
+
     async def get_wallet(self, user_id: int) -> Optional[Dict]:
-        """Get wallet info for a user (without private key)"""
-        return await self.db.get_user_wallet(user_id)
+        """Get the active (or first) wallet for a user. Backward-compat shim."""
+        return await self.db.get_active_user_wallet(user_id)
+
+    async def get_wallets(self, user_id: int):
+        """Get all wallets for a user, ordered by wallet_index."""
+        return await self.db.get_all_user_wallets(user_id)
+
+    async def get_wallet_by_id(self, user_id: int, wallet_db_id: int) -> Optional[Dict]:
+        """Get a specific wallet by its DB id, ensuring it belongs to user_id."""
+        return await self.db.get_user_wallet_by_id(wallet_db_id, user_id)
+
+    async def count_wallets(self, user_id: int) -> int:
+        return await self.db.count_user_wallets(user_id)
 
     async def delete_wallet(self, user_id: int) -> bool:
-        """Delete a user's wallet"""
+        """Delete the active wallet for a user (legacy / single-wallet fallback)."""
+        wallet = await self.get_wallet(user_id)
+        if wallet and wallet.get('id'):
+            return await self.db.delete_user_wallet_by_id(user_id, wallet['id'])
         return await self.db.delete_user_wallet(user_id)
+
+    async def delete_wallet_by_id(self, user_id: int, wallet_db_id: int) -> bool:
+        """Delete a specific wallet by its DB id."""
+        return await self.db.delete_user_wallet_by_id(user_id, wallet_db_id)
+
+    async def set_active_wallet(self, user_id: int, wallet_db_id: int) -> bool:
+        return await self.db.set_active_wallet(user_id, wallet_db_id)
+
+    async def rename_wallet(self, user_id: int, wallet_db_id: int, name: str) -> bool:
+        return await self.db.rename_trading_wallet(user_id, wallet_db_id, name)
+
+    async def create_additional_wallet(self, user_id: int, wallet_name: str = None) -> Dict:
+        """Create a brand-new wallet (2nd or 3rd slot) for a user."""
+        count = await self.count_wallets(user_id)
+        MAX_WALLETS = 3
+        if count >= MAX_WALLETS:
+            return {'success': False, 'error': f'You can have at most {MAX_WALLETS} wallets.'}
+
+        try:
+            privy_result = await self.privy_service.create_user_with_wallet(user_id)
+            eoa_address = privy_result['wallet_address']
+            privy_user_id = privy_result['privy_user_id']
+            privy_wallet_id = privy_result['privy_wallet_id']
+
+            safe_address = None
+            if self.builder:
+                safe_address = self.builder.derive_safe_address(eoa_address)
+
+            wallet_db_id = await self.db.save_new_wallet(
+                user_id=user_id,
+                address=eoa_address.lower(),
+                safe_address=safe_address,
+                wallet_type='privy',
+                privy_user_id=privy_user_id,
+                privy_wallet_id=privy_wallet_id,
+                wallet_name=wallet_name,
+            )
+
+            if wallet_db_id:
+                return {
+                    'success': True,
+                    'address': eoa_address,
+                    'safe_address': safe_address,
+                    'wallet_db_id': wallet_db_id,
+                }
+            return {'success': False, 'error': 'Failed to save wallet.'}
+
+        except Exception as e:
+            logger.error(f"Error creating additional wallet: {e}", exc_info=True)
+            return {'success': False, 'error': str(e)}
+
+    async def get_balances_for_wallet(self, wallet: Dict) -> Dict:
+        """Fetch balances for a specific wallet dict (used for multi-wallet display)."""
+        if not wallet:
+            return {'polymarket_usdc': 0.0, 'safe_usdc': 0.0}
+        safe_address = wallet.get('safe_address')
+        if not safe_address:
+            return {'polymarket_usdc': 0.0, 'safe_usdc': 0.0}
+        try:
+            import requests as _req
+            url = f"https://data-api.polymarket.com/value?user={safe_address}"
+            resp = await asyncio.get_event_loop().run_in_executor(
+                None, lambda: _req.get(url, timeout=6)
+            )
+            if resp.ok:
+                data = resp.json()
+                usdc = float(data.get('portfolioValue', 0) or 0)
+                return {'polymarket_usdc': usdc, 'safe_usdc': 0.0}
+        except Exception:
+            pass
+        return {'polymarket_usdc': 0.0, 'safe_usdc': 0.0}
+
+    # ── CLOB client that accepts an optional wallet dict ────────────
 
     async def get_balances(self, user_id: int) -> Dict:
         """Get wallet balances (all RPC calls run concurrently)."""
@@ -451,6 +540,27 @@ class WalletManager:
                     pass
             logger.error(f"Error fetching Polymarket balance: {e}")
             return 0.0
+
+    async def get_won_markets_for_wallet(self, wallet: Dict) -> Dict:
+        """Get won/claimable markets for a specific wallet dict (multi-wallet support)."""
+        try:
+            safe_address = wallet.get('safe_address')
+            if not safe_address:
+                return {"success": False, "error": "No Safe address found", "markets": []}
+            loop = asyncio.get_running_loop()
+            positions = await loop.run_in_executor(None, lambda: _fetch_positions(safe_address))
+            markets = []
+            for pos in positions or []:
+                title = pos.get("title") or pos.get("market", "Unknown market")
+                pnl = float(pos.get("cashPnl", 0) or pos.get("pnl", 0) or 0.0)
+                size = float(pos.get("size", 0.0) or 0.0)
+                redeemable = bool(pos.get("redeemable"))
+                if redeemable and pnl > 0:
+                    markets.append({"title": title, "pnl": pnl, "size": size, "redeemable": redeemable})
+            return {"success": True, "markets": markets}
+        except Exception as e:
+            logger.error(f"Error getting won markets for wallet: {e}", exc_info=True)
+            return {"success": False, "error": str(e), "markets": []}
 
     async def get_won_markets(self, user_id: int) -> Dict:
         """

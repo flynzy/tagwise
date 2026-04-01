@@ -186,7 +186,7 @@ class UserWallet(Base):
     __tablename__ = 'user_wallets'
     
     id = Column(BigInteger, primary_key=True)
-    user_id = Column(BigInteger, unique=True, nullable=False, index=True)
+    user_id = Column(BigInteger, nullable=False, index=True)  # NOT unique — supports multiple wallets
     
     # EOA (Externally Owned Account) - the signing key
     address = Column(String, nullable=False)
@@ -203,6 +203,11 @@ class UserWallet(Base):
     privy_wallet_id = Column(String, nullable=True)
     
     wallet_type = Column(String, default='created')  # 'created' or 'imported'
+
+    # Multi-wallet support
+    wallet_index = Column(BigInteger, default=1)   # 1, 2, or 3
+    is_active = Column(Boolean, default=True)       # True = active/default wallet
+    wallet_name = Column(String, nullable=True)     # User-defined label
     
     # Safe deployment status
     safe_deployed = Column(Boolean, default=False)
@@ -217,7 +222,8 @@ class UserApiCreds(Base):
     __tablename__ = 'user_api_creds'
     
     id = Column(BigInteger, primary_key=True)
-    user_id = Column(BigInteger, unique=True, nullable=False, index=True)
+    user_id = Column(BigInteger, nullable=False, index=True)  # kept for legacy reads
+    wallet_id = Column(BigInteger, nullable=True, index=True)  # FK to user_wallets.id (multi-wallet)
     api_key = Column(String, nullable=False)
     api_secret = Column(String, nullable=False)
     api_passphrase = Column(String, nullable=False)
@@ -1601,7 +1607,321 @@ class Database:
                 await session.rollback()
                 logger.error(f"Error cleaning up sent trades: {e}")
 
-    # ==================== TRADING WALLET METHODS ====================
+    # ==================== MULTI-WALLET METHODS ====================
+
+    async def get_all_user_wallets(self, user_id: int) -> List[Dict]:
+        """Get all trading wallets for a user, ordered by wallet_index."""
+        async with self.get_session() as session:
+            try:
+                stmt = (
+                    select(UserWallet)
+                    .where(UserWallet.user_id == user_id)
+                    .order_by(UserWallet.wallet_index)
+                )
+                result = await session.execute(stmt)
+                wallets = result.scalars().all()
+                return [self._wallet_to_dict(w) for w in wallets]
+            except Exception as e:
+                logger.error(f"Error getting all user wallets: {e}")
+                return []
+
+    def _wallet_to_dict(self, wallet, include_encrypted_key: bool = False) -> Dict:
+        """Convert a UserWallet ORM object to a dict."""
+        d = {
+            'id': wallet.id,
+            'user_id': wallet.user_id,
+            'address': wallet.address,
+            'safe_address': wallet.safe_address or wallet.proxy_address,
+            'proxy_address': wallet.proxy_address,
+            'wallet_type': wallet.wallet_type,
+            'safe_deployed': wallet.safe_deployed,
+            'allowances_set': wallet.allowances_set,
+            'created_at': wallet.created_at,
+            'privy_user_id': wallet.privy_user_id,
+            'privy_wallet_id': wallet.privy_wallet_id,
+            'wallet_index': wallet.wallet_index or 1,
+            'is_active': wallet.is_active if wallet.is_active is not None else True,
+            'wallet_name': wallet.wallet_name,
+        }
+        if include_encrypted_key:
+            d['encrypted_private_key'] = wallet.encrypted_private_key
+        return d
+
+    async def count_user_wallets(self, user_id: int) -> int:
+        """Return the number of trading wallets a user has."""
+        async with self.get_session() as session:
+            try:
+                stmt = select(func.count()).select_from(UserWallet).where(UserWallet.user_id == user_id)
+                result = await session.execute(stmt)
+                return result.scalar() or 0
+            except Exception as e:
+                logger.error(f"Error counting user wallets: {e}")
+                return 0
+
+    async def get_active_user_wallet(self, user_id: int) -> Optional[Dict]:
+        """Get the currently active wallet for a user."""
+        async with self.get_session() as session:
+            try:
+                # Try to find explicitly active wallet first
+                stmt = (
+                    select(UserWallet)
+                    .where(UserWallet.user_id == user_id, UserWallet.is_active == True)
+                    .order_by(UserWallet.wallet_index)
+                    .limit(1)
+                )
+                result = await session.execute(stmt)
+                wallet = result.scalars().first()
+                if wallet:
+                    return self._wallet_to_dict(wallet)
+                # Fallback: return wallet with lowest index
+                stmt = (
+                    select(UserWallet)
+                    .where(UserWallet.user_id == user_id)
+                    .order_by(UserWallet.wallet_index)
+                    .limit(1)
+                )
+                result = await session.execute(stmt)
+                wallet = result.scalars().first()
+                return self._wallet_to_dict(wallet) if wallet else None
+            except Exception as e:
+                logger.error(f"Error getting active wallet: {e}")
+                return None
+
+    async def get_user_wallet_by_id(self, wallet_db_id: int, user_id: int) -> Optional[Dict]:
+        """Get a specific wallet by its DB primary key, ensuring it belongs to user_id."""
+        async with self.get_session() as session:
+            try:
+                stmt = select(UserWallet).where(
+                    UserWallet.id == wallet_db_id,
+                    UserWallet.user_id == user_id,
+                )
+                result = await session.execute(stmt)
+                wallet = result.scalars().first()
+                return self._wallet_to_dict(wallet) if wallet else None
+            except Exception as e:
+                logger.error(f"Error getting wallet by id: {e}")
+                return None
+
+    async def set_active_wallet(self, user_id: int, wallet_db_id: int) -> bool:
+        """Set the active wallet for a user (deactivates all others)."""
+        async with self.get_session() as session:
+            try:
+                # Deactivate all wallets for this user
+                await session.execute(
+                    update(UserWallet)
+                    .where(UserWallet.user_id == user_id)
+                    .values(is_active=False)
+                )
+                # Activate the target wallet
+                result = await session.execute(
+                    update(UserWallet)
+                    .where(UserWallet.id == wallet_db_id, UserWallet.user_id == user_id)
+                    .values(is_active=True)
+                )
+                await session.commit()
+                return result.rowcount > 0
+            except Exception as e:
+                await session.rollback()
+                logger.error(f"Error setting active wallet: {e}")
+                return False
+
+    async def rename_trading_wallet(self, user_id: int, wallet_db_id: int, name: str) -> bool:
+        """Rename a trading wallet."""
+        async with self.get_session() as session:
+            try:
+                result = await session.execute(
+                    update(UserWallet)
+                    .where(UserWallet.id == wallet_db_id, UserWallet.user_id == user_id)
+                    .values(wallet_name=name)
+                )
+                await session.commit()
+                return result.rowcount > 0
+            except Exception as e:
+                await session.rollback()
+                logger.error(f"Error renaming trading wallet: {e}")
+                return False
+
+    async def save_new_wallet(
+        self,
+        user_id: int,
+        address: str,
+        safe_address: str = None,
+        wallet_type: str = 'created',
+        privy_user_id: str = None,
+        privy_wallet_id: str = None,
+        wallet_name: str = None,
+    ) -> Optional[int]:
+        """
+        Insert a brand-new wallet row for a user (for 2nd/3rd wallet slots).
+        Returns the new wallet's DB id, or None on failure.
+        """
+        async with self.get_session() as session:
+            try:
+                # Determine next wallet_index
+                stmt = select(func.max(UserWallet.wallet_index)).where(UserWallet.user_id == user_id)
+                result = await session.execute(stmt)
+                max_index = result.scalar() or 0
+                new_index = max_index + 1
+
+                eff_safe = safe_address.lower() if safe_address else None
+                wallet = UserWallet(
+                    user_id=user_id,
+                    address=address.lower(),
+                    safe_address=eff_safe,
+                    proxy_address=eff_safe,
+                    wallet_type=wallet_type,
+                    privy_user_id=privy_user_id,
+                    privy_wallet_id=privy_wallet_id,
+                    wallet_index=new_index,
+                    is_active=False,   # Don't auto-activate new wallet
+                    wallet_name=wallet_name,
+                )
+                session.add(wallet)
+                await session.flush()
+                wallet_id = wallet.id
+                await session.commit()
+                logger.info(f"Created wallet #{new_index} for user {user_id} (id={wallet_id})")
+                return wallet_id
+            except Exception as e:
+                await session.rollback()
+                logger.error(f"Error saving new wallet: {e}", exc_info=True)
+                return None
+
+    async def delete_user_wallet_by_id(self, user_id: int, wallet_db_id: int) -> bool:
+        """Delete a specific trading wallet (and its API creds) by DB id."""
+        async with self.get_session() as session:
+            try:
+                stmt = select(UserWallet).where(
+                    UserWallet.id == wallet_db_id,
+                    UserWallet.user_id == user_id,
+                )
+                result = await session.execute(stmt)
+                wallet = result.scalars().first()
+                if not wallet:
+                    return False
+                was_active = wallet.is_active
+                await session.delete(wallet)
+
+                # Re-number remaining wallet indices
+                remaining_stmt = (
+                    select(UserWallet)
+                    .where(UserWallet.user_id == user_id)
+                    .order_by(UserWallet.wallet_index)
+                )
+                remaining_result = await session.execute(remaining_stmt)
+                remaining = remaining_result.scalars().all()
+                for i, w in enumerate(remaining, start=1):
+                    w.wallet_index = i
+                    if i == 1 and was_active:
+                        w.is_active = True   # Auto-activate wallet #1 if we deleted active
+
+                await session.commit()
+                logger.info(f"Deleted wallet id={wallet_db_id} for user {user_id}")
+                return True
+            except Exception as e:
+                await session.rollback()
+                logger.error(f"Error deleting wallet by id: {e}")
+                return False
+
+    async def update_wallet_safe_address_by_id(self, wallet_db_id: int, safe_address: str) -> bool:
+        """Update Safe address on a wallet identified by its DB id."""
+        async with self.get_session() as session:
+            try:
+                eff = safe_address.lower() if safe_address else None
+                result = await session.execute(
+                    update(UserWallet)
+                    .where(UserWallet.id == wallet_db_id)
+                    .values(safe_address=eff, proxy_address=eff, updated_at=datetime.now(timezone.utc))
+                )
+                await session.commit()
+                return result.rowcount > 0
+            except Exception as e:
+                await session.rollback()
+                logger.error(f"Error updating safe address by id: {e}")
+                return False
+
+    async def update_wallet_allowances_set_by_id(self, wallet_db_id: int, is_set: bool) -> bool:
+        """Update allowances_set flag on a wallet identified by its DB id."""
+        async with self.get_session() as session:
+            try:
+                result = await session.execute(
+                    update(UserWallet)
+                    .where(UserWallet.id == wallet_db_id)
+                    .values(allowances_set=is_set, updated_at=datetime.now(timezone.utc))
+                )
+                await session.commit()
+                return result.rowcount > 0
+            except Exception as e:
+                await session.rollback()
+                logger.error(f"Error updating allowances by id: {e}")
+                return False
+
+    async def get_user_api_creds_by_wallet_id(self, wallet_db_id: int) -> Optional[Dict]:
+        """Get API creds for a specific wallet row (multi-wallet support)."""
+        async with self.get_session() as session:
+            try:
+                stmt = select(UserApiCreds).where(UserApiCreds.wallet_id == wallet_db_id)
+                result = await session.execute(stmt)
+                creds = result.scalars().first()
+                if not creds:
+                    return None
+                return {
+                    'api_key': self._decrypt_value(creds.api_key),
+                    'api_secret': self._decrypt_value(creds.api_secret),
+                    'api_passphrase': self._decrypt_value(creds.api_passphrase),
+                    'signature_type': creds.signature_type,
+                }
+            except Exception as e:
+                logger.error(f"Error getting API creds by wallet_id: {e}")
+                return None
+
+    async def save_user_api_creds_by_wallet_id(self, user_id: int, wallet_db_id: int, creds_dict: Dict) -> bool:
+        """Save API credentials keyed to a specific wallet row."""
+        async with self.get_session() as session:
+            try:
+                stmt = select(UserApiCreds).where(UserApiCreds.wallet_id == wallet_db_id)
+                result = await session.execute(stmt)
+                existing = result.scalars().first()
+                if existing:
+                    existing.api_key = self._encrypt_value(creds_dict['api_key'])
+                    existing.api_secret = self._encrypt_value(creds_dict['api_secret'])
+                    existing.api_passphrase = self._encrypt_value(creds_dict['api_passphrase'])
+                    existing.signature_type = creds_dict.get('signature_type', 2)
+                    existing.updated_at = datetime.now(timezone.utc)
+                else:
+                    new_creds = UserApiCreds(
+                        user_id=user_id,
+                        wallet_id=wallet_db_id,
+                        api_key=self._encrypt_value(creds_dict['api_key']),
+                        api_secret=self._encrypt_value(creds_dict['api_secret']),
+                        api_passphrase=self._encrypt_value(creds_dict['api_passphrase']),
+                        signature_type=creds_dict.get('signature_type', 2),
+                    )
+                    session.add(new_creds)
+                await session.commit()
+                return True
+            except Exception as e:
+                await session.rollback()
+                logger.error(f"Error saving API creds by wallet_id: {e}")
+                return False
+
+    async def delete_user_api_creds_by_wallet_id(self, wallet_db_id: int) -> bool:
+        """Delete API credentials for a specific wallet row."""
+        async with self.get_session() as session:
+            try:
+                stmt = select(UserApiCreds).where(UserApiCreds.wallet_id == wallet_db_id)
+                result = await session.execute(stmt)
+                creds = result.scalars().first()
+                if creds:
+                    await session.delete(creds)
+                    await session.commit()
+                return True
+            except Exception as e:
+                await session.rollback()
+                logger.error(f"Error deleting API creds by wallet_id: {e}")
+                return False
+
+    # ==================== TRADING WALLET METHODS (legacy / single-wallet) ====================
     
     async def save_user_wallet(
         self,
