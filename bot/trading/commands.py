@@ -69,7 +69,30 @@ class TradingCommands:
         user_id = update.effective_user.id
         action = query.data.replace("wallet_", "")
 
-        if action.startswith("portfolio_"):
+        if action == "portfolio_pick":
+            wallets = await self.wallet_manager.get_wallets(user_id)
+            if not wallets:
+                await self.bot.menu_handlers.show_trading_wallet(query, user_id)
+                return
+            if len(wallets) == 1:
+                await query.edit_message_text("⏳ Loading portfolio...")
+                await self.bot.menu_handlers.show_portfolio(query, user_id, wallet_db_id=wallets[0]['id'])
+                return
+            keyboard = []
+            for w in wallets:
+                wname = w.get('wallet_name') or f"Wallet {w['wallet_index']}"
+                active_marker = " ✅" if w.get('is_active') else ""
+                keyboard.append([InlineKeyboardButton(
+                    f"📊 {wname}{active_marker}", callback_data=f"wallet_portfolio_{w['id']}"
+                )])
+            keyboard.append([InlineKeyboardButton("🔙 Back", callback_data="menu_trading_wallet")])
+            await query.edit_message_text(
+                "📊 *Portfolio*\n\nChoose which wallet to view:",
+                parse_mode="Markdown",
+                reply_markup=InlineKeyboardMarkup(keyboard)
+            )
+
+        elif action.startswith("portfolio_"):
             wallet_db_id = int(action.replace("portfolio_", ""))
             await query.edit_message_text("⏳ Loading portfolio...")
             await self.bot.menu_handlers.show_portfolio(query, user_id, wallet_db_id=wallet_db_id)

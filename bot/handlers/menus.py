@@ -234,14 +234,11 @@ Track Polymarket wallets and get notified of their trades.
             usdc = bal.get('polymarket_usdc', 0.0) if isinstance(bal, dict) else 0.0
             wname = w.get('wallet_name') or f"Wallet {w['wallet_index']}"
             active_marker = " ✅" if w.get('is_active') else ""
-            safe = w.get('safe_address', 'Not set') or 'Not set'
-            short_safe = f"{safe[:6]}...{safe[-4:]}" if safe and safe != 'Not set' else 'Not set'
-            text += f"*{wname}*{active_marker}\n`{short_safe}` — ${usdc:.2f} USDC\n\n"
-            keyboard.append([InlineKeyboardButton(
-                f"📊 {wname} Portfolio", callback_data=f"wallet_portfolio_{w['id']}"
-            )])
+            safe = w.get('safe_address') or 'Not set'
+            text += f"*{wname}*{active_marker}\n`{safe}` — ${usdc:.2f} USDC\n\n"
 
-        # Action buttons
+        # Action buttons — all three show a wallet picker when >1 wallet
+        keyboard.append([InlineKeyboardButton("📊 Portfolio", callback_data="wallet_portfolio_pick")])
         if len(wallets) < 3:
             keyboard.append([InlineKeyboardButton("➕ Add Wallet", callback_data="wallet_add")])
         if len(wallets) > 1:
