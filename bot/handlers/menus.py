@@ -218,130 +218,140 @@ Track Polymarket wallets and get notified of their trades.
             else:
                 await source.message.reply_text(text, parse_mode="Markdown", reply_markup=markup)
             return
-            
-        # Run all heavy fetches concurrently
-        safe = wallet.get('safe_address')
-        status_task = self.wallet_manager.get_wallet_status(user_id)
-        balances_task = self.wallet_manager.get_balances(user_id)
-        positions_task = (
-            self.polymarket.get_open_positions(safe)
-            if safe else asyncio.sleep(0, result=None) 
-        )
 
-        status, balances, raw_positions = await asyncio.gather(
-            status_task, balances_task, positions_task,
-            return_exceptions=True
-        )
-
-        # Handle any failures gracefully
+        status = await self.wallet_manager.get_wallet_status(user_id)
         if isinstance(status, Exception):
             logger.error(f"Error fetching status: {status}")
-            status = {'safe_address': safe or 'Not set', 'ready_to_trade': False}
-        if isinstance(balances, Exception):
-            logger.error(f"Error fetching balances: {balances}")
-            balances = {}
-        if isinstance(raw_positions, Exception):
-            logger.error(f"Error fetching positions: {raw_positions}")
-            raw_positions = None
+            status = {'safe_address': wallet.get('safe_address', 'Not set'), 'ready_to_trade': False}
 
-        eoa = wallet["address"]
         safe = status.get("safe_address", "Not set")
         ready = status.get("ready_to_trade", False)
         status_text = "Ready to trade ✅" if ready else "⚠️ Setup required"
-
-        # Build positions text
-        # Default to "No open positions" whenever the safe is configured —
-        # "Setup required" should only appear when we have no safe address at all.
-        positions_text = "Setup required" if not (safe and safe != "Not set") else "No open positions"
-        if safe and safe != "Not set" and raw_positions:
-            try:
-                positions = raw_positions  # Reuse already-fetched positions
-                if positions and len(positions) > 0:
-                    total_value = 0
-                    position_list = []
-                    for pos in positions:
-                        try:
-                            market_title = pos.get("title", "Unknown")[:80]
-                            outcome = pos.get("outcome", "Unknown")
-                            current_value = float(pos.get("currentValue", 0) or 0)
-                            cash_pnl = float(pos.get("cashPnl", 0) or 0)
-                            if current_value < 0.01:
-                                continue
-                            total_value += current_value
-                            pnl_emoji = "🟢 " if cash_pnl >= 0 else "🔴 "
-                            position_list.append({"market": market_title, "outcome": outcome, "value": current_value, "pnl": cash_pnl, "pnl_emoji": pnl_emoji})
-                        except (ValueError, TypeError):
-                            continue
-                    position_list.sort(key=lambda x: x["value"], reverse=True)
-                    if position_list:
-                        positions_text = f"*{len(position_list)} open* | Total: ${total_value:.2f}\n\n"
-                        for pos in position_list[:5]:
-                            pnl_sign = "+" if pos['pnl'] >= 0 else "-"
-                            abs_pnl = abs(pos['pnl'])
-                            title = pos['market'][:60] + ("…" if len(pos['market']) > 60 else "")
-                            positions_text += (
-                                f"`{title}`\n"
-                                f"  ↳ {pos['outcome']}  ·  ${pos['value']:.2f}  ·  {pos['pnl_emoji']}{pnl_sign}${abs_pnl:.2f}\n\n"
-                            )
-                        if len(position_list) > 5:
-                            positions_text = positions_text.rstrip("\n") + f"\n_...and {len(position_list) - 5} more_"
-                    else:
-                        positions_text = "No open positions"
-                else:
-                    positions_text = "No open positions"
-            except Exception as e:
-                logger.error(f"Error fetching positions for {safe}: {e}", exc_info=True)
-                positions_text = "Unable to load"
-
-        # ── Markets won (redeemable positions) ──────────────────────
-        markets_won_text = ""
-        if safe and safe != "Not set":
-            try:
-                won = await self.wallet_manager.get_won_markets(user_id)
-                markets = won.get("markets", []) if won.get("success") else []
-                if markets:
-                    markets_won_text = f"**Markets won:** {len(markets)}\n"
-                    for m in markets[:3]:
-                        title = escape_markdown(m["title"])[:55]
-                        pnl = m["pnl"]
-                        markets_won_text += f"• {title} — +${pnl:.2f}\n"
-                    if len(markets) > 3:
-                        markets_won_text += f"_...and {len(markets) - 3} more_\n"
-                else:
-                    markets_won_text = "**Markets won:** None yet.\n"
-            except Exception as e:
-                logger.warning(f"Could not fetch won markets for user {user_id}: {e}")
-                markets_won_text = "**Markets won:** Unable to load.\n"
-        else:
-            markets_won_text = "**Markets won:** Setup required.\n"
 
         message = (
             f"💳 *Your Trading Wallet*\n\n"
             f"*Send native USDC.e (Polygon) to your Polymarket address to deposit.*\n\n"
             f"*Polymarket Address:*\n`{safe}`\n\n"
-            # f"*On-chain Address:*\n`{eoa}`\n"
-            f"*Status:* {status_text}\n\n"
-            f"**Balances:**\n"
-            f"• Polymarket USDC.e: ${balances.get('polymarket_usdc', 0):.2f} USDC\n\n"
-            f"**Positions:** {positions_text}\n\n"
-            f"{markets_won_text}"
-
+            f"*Status:* {status_text}\n"
         )
 
-        keyboard = [[InlineKeyboardButton("🔄 Refresh", callback_data="wallet_refresh")]]
+        keyboard = [
+            [InlineKeyboardButton("📊 Portfolio", callback_data="wallet_portfolio")],
+            [InlineKeyboardButton("🔄 Refresh", callback_data="wallet_refresh")],
+        ]
         if not ready:
             keyboard.append([InlineKeyboardButton("⚙️ Complete Setup (Gasless)", callback_data="wallet_setup")])
-        """
-        else:
-            # Always allow re-running setup to fix stale allowances (e.g. after adding USDC.e)
-            keyboard.append([InlineKeyboardButton("🔄 Re-run Allowances Setup", callback_data="wallet_setup")])
-        """
         keyboard.extend([
             [InlineKeyboardButton("💸 Claim winnings", callback_data="wallet_claim")],
             [InlineKeyboardButton("📤 Withdraw USDC", callback_data="wallet_withdraw")],
             [InlineKeyboardButton("🗑️ Delete Wallet", callback_data="wallet_delete")],
             [InlineKeyboardButton("🔙 Back to Menu", callback_data="menu_main")],
         ])
+        markup = InlineKeyboardMarkup(keyboard)
+
+        if is_callback:
+            await source.edit_message_text(message, parse_mode="Markdown", reply_markup=markup)
+        else:
+            await source.message.reply_text(message, parse_mode="Markdown", reply_markup=markup)
+
+    async def show_portfolio(self, source, user_id: int):
+        """Show detailed portfolio statistics for the user's trading wallet."""
+        is_callback = hasattr(source, 'edit_message_text')
+
+        wallet = await self.wallet_manager.get_wallet(user_id)
+        if not wallet:
+            keyboard = [[InlineKeyboardButton("🔙 Back to Wallet", callback_data="menu_trading_wallet")]]
+            text = "❌ No wallet found. Set up your trading wallet first."
+            if is_callback:
+                await source.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
+            else:
+                await source.message.reply_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
+            return
+
+        safe = wallet.get('safe_address')
+        if not safe:
+            keyboard = [[InlineKeyboardButton("🔙 Back to Wallet", callback_data="menu_trading_wallet")]]
+            text = "⚠️ Wallet setup not complete. Your Polymarket address is not ready yet."
+            if is_callback:
+                await source.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
+            else:
+                await source.message.reply_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
+            return
+
+        # Fetch all data concurrently
+        balances_task = self.wallet_manager.get_balances(user_id)
+        stats_task = self.polymarket.get_wallet_stats(safe)
+        won_markets_task = self.wallet_manager.get_won_markets(user_id)
+
+        balances, stats, won_markets_result = await asyncio.gather(
+            balances_task, stats_task, won_markets_task,
+            return_exceptions=True
+        )
+
+        if isinstance(balances, Exception):
+            logger.error(f"Portfolio: error fetching balances: {balances}")
+            balances = {}
+        if isinstance(stats, Exception):
+            logger.error(f"Portfolio: error fetching stats: {stats}")
+            stats = {}
+        if isinstance(won_markets_result, Exception):
+            logger.error(f"Portfolio: error fetching won markets: {won_markets_result}")
+            won_markets_result = {"markets": [], "success": False}
+
+        # ── Extract values ──
+        usdc_balance = balances.get('polymarket_usdc', 0.0)
+
+        total_pnl = stats.get('pnl_all_time', 0.0)
+        realized_pnl = stats.get('realized_pnl', 0.0)
+        open_pnl = stats.get('open_pnl', 0.0)
+        roi = stats.get('roi_all_time', 0.0)
+
+        win_rate = stats.get('win_rate')
+        winning = stats.get('winning_positions', 0)
+        losing = stats.get('losing_positions', 0)
+        total_trades = stats.get('total_trades', 0)
+        total_positions = stats.get('total_positions', 0)
+        volume_7d = stats.get('volume_7d', 0.0)
+        open_positions_count = stats.get('open_positions_count', 0)
+
+        claimable_count = len(won_markets_result.get('markets', []))
+
+        # ── Formatting helpers ──
+        def fmt_pnl(v: float) -> str:
+            sign = "+" if v >= 0 else "-"
+            return f"{sign}${abs(v):.2f}"
+
+        win_rate_str = f"{win_rate:.1f}%" if win_rate is not None else "N/A"
+        roi_str = f"{roi:+.2f}%"
+        roi_emoji = "🟢" if roi >= 0 else "🔴"
+        pnl_emoji = "🟢" if total_pnl >= 0 else "🔴"
+
+        message = (
+            f"📊 *Portfolio*\n\n"
+            f"💰 *Balance*\n"
+            f"├ USDC: ${usdc_balance:.2f}\n"
+            f"└ Positions Value: ${open_pnl:.2f}\n\n"
+            f"💸 *Profit & Loss*\n"
+            f"├ All-Time: {pnl_emoji} {fmt_pnl(total_pnl)}\n"
+            f"├ ROI: {roi_emoji} {roi_str}\n"
+            f"├ Realized: {fmt_pnl(realized_pnl)}\n"
+            f"└ Unrealized: {fmt_pnl(open_pnl)}\n\n"
+            f"📈 *Trading Stats*\n"
+            f"├ Win Rate: {win_rate_str}\n"
+            f"├ Won: {winning} | Lost: {losing}\n"
+            f"├ Total Trades: {total_trades:,}\n"
+            f"├ 7d Volume: ${volume_7d:,.2f}\n"
+            f"└ Markets Traded: {total_positions:,}\n\n"
+            f"📂 *Positions*\n"
+            f"├ Open: {open_positions_count}\n"
+            f"└ Claimable (Won): {claimable_count}\n"
+        )
+
+        keyboard = [
+            [InlineKeyboardButton("🔄 Refresh", callback_data="wallet_portfolio")],
+            [InlineKeyboardButton("💸 Claim Winnings", callback_data="wallet_claim")],
+            [InlineKeyboardButton("🔙 Back to Wallet", callback_data="menu_trading_wallet")],
+        ]
         markup = InlineKeyboardMarkup(keyboard)
 
         if is_callback:

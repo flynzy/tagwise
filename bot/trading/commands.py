@@ -68,7 +68,11 @@ class TradingCommands:
         user_id = update.effective_user.id
         action = query.data.replace("wallet_", "")
 
-        if action in ("create", "import"):
+        if action == "portfolio":
+            await query.edit_message_text("⏳ Loading portfolio...")
+            await self.bot.menu_handlers.show_portfolio(query, user_id)
+
+        elif action in ("create", "import"):
             # Wallet provisioning is now automatic — just show the wallet page
             await self.bot.menu_handlers.show_trading_wallet(query, user_id)
 

@@ -488,8 +488,8 @@ class WalletManager:
                 size = float(pos.get("size", 0.0) or 0.0)
                 redeemable = bool(pos.get("redeemable"))
 
-                # Only show positions that are in profit or explicitly redeemable
-                if pnl > 0 or redeemable:
+                # Only show markets that are truly won: resolved (redeemable) AND profitable
+                if redeemable and pnl > 0:
                     markets.append(
                         {
                             "title": title,
