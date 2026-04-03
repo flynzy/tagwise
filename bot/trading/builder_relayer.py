@@ -539,6 +539,85 @@ class BuilderRelayer:
             logger.error(f"Error depositing to Safe (Privy): {e}", exc_info=True)
             return {'success': False, 'error': str(e)}
 
+    def redeem_positions_privy(
+        self,
+        privy_service,
+        wallet_id: str,
+        eoa_address: str,
+        safe_address: str,
+        condition_id: str,
+        outcome_index: int,
+        collateral_token: str = None,
+    ) -> Dict:
+        """
+        Redeem a resolved winning CTF position gaslessly via the Builder Relayer.
+
+        Calls CTF.redeemPositions(collateralToken, parentCollectionId, conditionId, indexSets)
+        where indexSets = [1 << outcome_index]  (bitmask of the winning outcome).
+
+        Parameters
+        ----------
+        condition_id    : hex-encoded bytes32 condition ID (with or without 0x prefix)
+        outcome_index   : 0 = first outcome (YES), 1 = second outcome (NO), etc.
+        collateral_token: USDC address to redeem into; defaults to native USDC.
+        """
+        # CTF contract on Polygon (Gnosis Conditional Token Framework)
+        CTF_ADDRESS = "0x4D97DCd97eC945f40cF65F87097ACe5EA0476045"
+        CTF_ABI = [{
+            "name": "redeemPositions",
+            "type": "function",
+            "inputs": [
+                {"name": "collateralToken", "type": "address"},
+                {"name": "parentCollectionId", "type": "bytes32"},
+                {"name": "conditionId", "type": "bytes32"},
+                {"name": "indexSets", "type": "uint256[]"},
+            ],
+            "outputs": [],
+            "stateMutability": "nonpayable",
+        }]
+
+        try:
+            client, _ = self._get_relay_client_privy(privy_service, wallet_id, eoa_address)
+
+            token = collateral_token or USDC_ADDRESS
+            parent_collection_id = b"\x00" * 32  # null parent = top-level position
+
+            # Normalise condition_id to bytes32
+            cid = condition_id if condition_id.startswith("0x") else "0x" + condition_id
+            cid_bytes = bytes.fromhex(cid[2:].zfill(64))
+
+            index_set = 1 << outcome_index  # bitmask: 0→1, 1→2, 2→4, …
+
+            ctf = self.w3.eth.contract(
+                address=Web3.to_checksum_address(CTF_ADDRESS), abi=CTF_ABI
+            )
+            calldata = ctf.encode_abi("redeemPositions", [
+                Web3.to_checksum_address(token),
+                parent_collection_id,
+                cid_bytes,
+                [index_set],
+            ])
+
+            from py_builder_relayer_client.models import SafeTransaction, OperationType
+            txn = SafeTransaction(to=CTF_ADDRESS, data=calldata, value="0", operation=OperationType.Call)
+            response = client.execute([txn], f"Redeem CTF position cid={condition_id[:12]}...")
+
+            result = client.poll_until_state(
+                transaction_id=response.transaction_id,
+                states=["STATE_CONFIRMED"],
+                fail_state="STATE_FAILED",
+                max_polls=20,
+                poll_frequency=3000,
+            )
+            if result:
+                logger.info(f"✅ Redeemed CTF position {condition_id[:12]} for Safe {safe_address}")
+                return {"success": True, "tx_hash": response.transaction_hash}
+            return {"success": False, "error": "Redeem tx timed out"}
+
+        except Exception as e:
+            logger.error(f"Error redeeming CTF position: {e}", exc_info=True)
+            return {"success": False, "error": str(e)}
+
     def get_safe_status(self, eoa_address: str) -> Dict:
             """
             Get the status of a Safe for an EOA, checking allowances for BOTH CTF exchanges.

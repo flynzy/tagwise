@@ -704,10 +704,13 @@ class WalletManager:
 
     async def claim_winnings(self, user_id: int) -> Dict:
         """
-        Fetch all resolved winning positions and redeem them via the CTF contract.
+        Fetch all resolved winning positions and redeem them via the CTF contract
+        using the gasless Builder Relayer (Privy-backed).
+
         Returns a summary of claimed markets and total USDC received.
         """
-        import asyncio
+        if not self.builder:
+            return {'success': False, 'error': 'Builder Relayer not configured'}
 
         wallet = await self.get_wallet(user_id)
         if not wallet:
@@ -718,20 +721,14 @@ class WalletManager:
             return {'success': False, 'error': 'No Privy wallet configured'}
 
         safe_address = wallet.get('safe_address')
+        eoa_address = wallet.get('address')
         if not safe_address:
             return {'success': False, 'error': 'Safe not set up. Run /setup first.'}
 
         try:
-            client = await self._get_clob_client(user_id)
-            if not client:
-                return {'success': False, 'error': 'Could not connect to Polymarket'}
-
+            # Step 1: Fetch all positions from the Polymarket data API
             loop = asyncio.get_running_loop()
-
-            # Step 1: Get all open positions from CLOB
-            positions = await loop.run_in_executor(
-                None, lambda: _fetch_positions(safe_address)
-            )
+            positions = await loop.run_in_executor(None, lambda: _fetch_positions(safe_address))
 
             if not positions:
                 return {
@@ -741,15 +738,12 @@ class WalletManager:
                     'message': 'No open positions found.'
                 }
 
-            # Step 2: Filter for redeemable (resolved, winning) positions
+            # Step 2: Filter for truly redeemable winning positions
+            # redeemable=True AND pnl > 0 means the position is won and claimable
             redeemable = []
             for pos in positions:
-                # Polymarket marks resolved positions with redeemable=True
-                if pos.get('redeemable') or (
-                    pos.get('outcomeIndex') is not None and
-                    pos.get('marketStatus') in ('resolved', 'closed') and
-                    float(pos.get('size', 0)) > 0
-                ):
+                pnl = float(pos.get('cashPnl', 0) or pos.get('pnl', 0) or 0.0)
+                if pos.get('redeemable') and pnl > 0:
                     redeemable.append(pos)
 
             if not redeemable:
@@ -757,38 +751,58 @@ class WalletManager:
                     'success': True,
                     'claimed': [],
                     'total_claimed': 0.0,
-                    'message': 'No redeemable positions found.'
+                    'message': 'No redeemable winning positions found.'
                 }
 
-            # Step 3: Redeem each position
+            # Step 3: Redeem each position via CTF.redeemPositions (gasless)
             claimed = []
             failed = []
 
             for pos in redeemable:
+                market_title = pos.get('title') or pos.get('market', 'Unknown market')
+                pnl = float(pos.get('cashPnl', 0) or pos.get('pnl', 0) or 0.0)
                 try:
-                    condition_id = pos.get('conditionId') or pos.get('condition_id') or pos.get('market', {}).get('conditionId')
-                    market_title = pos.get('title') or pos.get('market', 'Unknown market')
-                    size = float(pos.get('size', 0))
+                    # condition_id is the market's bytes32 condition identifier
+                    condition_id = (
+                        pos.get('conditionId')
+                        or pos.get('condition_id')
+                        or pos.get('market_id')
+                    )
+                    if not condition_id:
+                        logger.warning(f"No condition_id for position: {market_title}")
+                        failed.append(market_title)
+                        continue
 
+                    # outcome_index: the API returns the index of the winning outcome
+                    # For binary markets YES=0, NO=1
+                    outcome = (pos.get('outcome') or 'YES').upper()
+                    outcome_index = 1 if outcome == 'NO' else 0
 
-                    result = await loop.run_in_executor(
-                        None,
-                        lambda cid=condition_id: client.redeem_position(condition_id=cid)
+                    result = await asyncio.to_thread(
+                        self.builder.redeem_positions_privy,
+                        self.privy_service,
+                        privy_wallet_id,
+                        eoa_address,
+                        safe_address,
+                        condition_id,
+                        outcome_index,
                     )
 
-                    if result:
+                    if result.get('success'):
                         claimed.append({
                             'market': market_title,
-                            'amount': size,
+                            'amount': pnl,
                             'condition_id': condition_id,
+                            'tx_hash': result.get('tx_hash', ''),
                         })
-                        logger.info(f"Claimed position for user {user_id}: {market_title} ({size:.2f} USDC)")
+                        logger.info(f"Claimed position for user {user_id}: {market_title} (+${pnl:.2f})")
                     else:
+                        logger.warning(f"Failed to redeem {market_title}: {result.get('error')}")
                         failed.append(market_title)
 
                 except Exception as e:
-                    logger.warning(f"Failed to redeem position {pos.get('condition_id')}: {e}")
-                    failed.append(pos.get('title', 'Unknown'))
+                    logger.warning(f"Failed to redeem position {market_title}: {e}")
+                    failed.append(market_title)
 
             total_claimed = sum(p['amount'] for p in claimed)
 
