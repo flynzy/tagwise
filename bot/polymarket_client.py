@@ -243,45 +243,57 @@ class PolymarketClient:
         #    events (one per outcome slot). We must aggregate per condition and count
         #    ONE win/loss per market, not one per event.
         #    total usdcSize across all events for that conditionId > 0 → win, else → lost.
+        # ── Count won/lost: deduplicate by MARKET, not by conditionId ──
         winning_positions = 0
         losing_positions = 0
+        counted_markets = set()  # track by slug/event to avoid double-counting outcomes
 
-        # Pending redeemable (not yet claimed)
+        # 1) Pending redeemable (not yet claimed)
         for pos in open_positions:
             try:
-                if not pos.get('redeemable'):
+                if not pos.get("redeemable"):
                     continue
-                cur_price_raw = pos.get('curPrice')
+                # Use slug or event_slug as the market-level key
+                market_key = pos.get("slug") or pos.get("event_slug") or pos.get("conditionId", "")
+                if market_key in counted_markets:
+                    continue
+                cur_price_raw = pos.get("curPrice")
                 if cur_price_raw is None:
                     continue
                 cur_price = float(cur_price_raw)
-                if cur_price >= 0.99:
+                if cur_price > 0.99:
                     winning_positions += 1
-                elif cur_price <= 0.01:
+                    counted_markets.add(market_key)
+                elif cur_price < 0.01:
                     losing_positions += 1
+                    counted_markets.add(market_key)
             except (ValueError, TypeError):
                 continue
 
-        # Already-redeemed: group by conditionId to deduplicate per-outcome events
-        redeem_by_condition: dict = {}
+        # 2) Already-redeemed (group by market, not conditionId)
+        redeem_by_market = {}
         for activity in all_activity:
             try:
-                if activity.get('type') != 'REDEEM':
+                if activity.get("type") != "REDEEM":
                     continue
-                cid = activity.get('conditionId') or activity.get('condition_id') or ''
-                usdc = float(activity.get('usdcSize', 0) or 0)
-                redeem_by_condition[cid] = redeem_by_condition.get(cid, 0.0) + usdc
+                market_key = activity.get("slug") or activity.get("event_slug") or \
+                            activity.get("conditionId") or activity.get("conditionid") or ""
+                if market_key in counted_markets:
+                    continue  # already counted as redeemable above
+                usdc = float(activity.get("usdcSize", 0) or 0)
+                redeem_by_market[market_key] = redeem_by_market.get(market_key, 0.0) + usdc
             except (ValueError, TypeError):
                 continue
 
-        for cid, total_usdc in redeem_by_condition.items():
+        for market_key, total_usdc in redeem_by_market.items():
             if total_usdc > 0:
                 winning_positions += 1
             else:
                 losing_positions += 1
+            counted_markets.add(market_key)
 
         total_resolved = winning_positions + losing_positions
-        win_rate = (winning_positions / total_resolved) * 100 if total_resolved > 0 else None
+        win_rate = (winning_positions / total_resolved * 100) if total_resolved > 0 else None
 
         # ===== Calculate ROI =====
         # ROI = total_pnl / total_buys (total USDC ever spent buying positions)

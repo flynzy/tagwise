@@ -569,9 +569,10 @@ class BuilderRelayer:
         neg_risk      : True if this is a negRisk/multi-outcome market
         collateral_token: override USDC address (defaults to native USDC)
         """
-        # Standard CTF contract on Polygon
+        # Standard CTF contract on Polygon (Gnosis Conditional Token Framework)
         CTF_ADDRESS = "0x4D97DCd97eC945f40cF65F87097ACe5EA0476045"
-        # NegRisk Adapter on Polygon
+        # NegRisk Adapter / NegRisk CTF Exchange on Polygon
+        # This contract owns the ABI: redeemPositions(bytes32 questionId, uint256[] amounts)
         NEG_RISK_ADAPTER = "0xd91E80cF2E7be2e162c6513ceD06f1dD0dA35296"
 
         CTF_REDEEM_ABI = [{

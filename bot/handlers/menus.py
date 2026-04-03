@@ -353,7 +353,7 @@ Track Polymarket wallets and get notified of their trades.
             f"📈 *Trading Stats*\n"
             f"├ Win Rate: {win_rate_str}\n"
             f"├ Won: {winning} | Lost: {losing}\n"
-            f"├ Total Trades: {total_trades:,}\n"
+            f"├ Trades: {total_trades:,}\n"
             f"├ 7d Volume: ${volume_7d:,.2f}\n"
             f"└ Markets Traded: {total_positions:,}\n\n"
             f"📂 *Positions*\n"
