@@ -417,25 +417,43 @@ class WalletManager:
             return {'success': False, 'error': str(e)}
 
     async def get_balances_for_wallet(self, wallet: Dict) -> Dict:
-        """Fetch balances for a specific wallet dict (used for multi-wallet display)."""
         if not wallet:
-            return {'polymarket_usdc': 0.0, 'safe_usdc': 0.0}
-        safe_address = wallet.get('safe_address')
+            return {"polymarket_usdc": 0.0, "safe_usdc": 0.0}
+        safe_address = wallet.get("safe_address")
         if not safe_address:
-            return {'polymarket_usdc': 0.0, 'safe_usdc': 0.0}
+            return {"polymarket_usdc": 0.0, "safe_usdc": 0.0}
         try:
-            import requests as _req
+            import requests as req
+
+            # Fetch portfolio value from Polymarket API
             url = f"https://data-api.polymarket.com/value?user={safe_address}"
             resp = await asyncio.get_event_loop().run_in_executor(
-                None, lambda: _req.get(url, timeout=6)
+                None, lambda: req.get(url, timeout=6)
             )
+            portfolio_value = 0.0
             if resp.ok:
                 data = resp.json()
-                usdc = float(data.get('portfolioValue', 0) or 0)
-                return {'polymarket_usdc': usdc, 'safe_usdc': 0.0}
+                portfolio_value = float(data.get("portfolioValue", 0) or 0)
+
+            # ✅ Also check on-chain USDC.e balance (what Polymarket actually uses)
+            usdc_abi = [{"constant": True, "inputs": [{"name": "owner", "type": "address"}],
+                        "name": "balanceOf", "outputs": [{"name": "balance", "type": "uint256"}],
+                        "type": "function"}]
+            usdce = self.w3.eth.contract(
+                address=Web3.to_checksum_address(USDC_E_ADDRESS), abi=usdc_abi
+            )
+            safe_cs = Web3.to_checksum_address(safe_address)
+            raw_balance = await asyncio.get_event_loop().run_in_executor(
+                None, lambda: usdce.functions.balanceOf(safe_cs).call()
+            )
+            safe_usdce = float(raw_balance) / 1_000_000
+
+            return {
+                "polymarket_usdc": portfolio_value,
+                "safe_usdc": safe_usdce,  # ✅ Now shows actual USDC.e balance
+            }
         except Exception:
-            pass
-        return {'polymarket_usdc': 0.0, 'safe_usdc': 0.0}
+            return {"polymarket_usdc": 0.0, "safe_usdc": 0.0}
 
     # ── CLOB client that accepts an optional wallet dict ────────────
 
@@ -892,9 +910,8 @@ class WalletManager:
             logger.warning(f"Trading activation failed for user {user_id}: {e}")
             return {'success': False, 'error': str(e)}
 
-    async def get_balance(self, user_id: int, force_refresh: bool = False) -> float:
-        """Get total available USDC balance (Safe + Polymarket)."""
-        balances = await self.get_balances(user_id)
-        if not balances.get('success'):
-            return 0.0
-        return balances.get('safe_usdc', 0) + balances.get('polymarket_usdc', 0)
+    async def get_balance(self, userid: int, force_refresh: bool = False) -> float:
+        balances = await self.get_balances(userid)
+        return (balances.get("safe_usdc", 0)
+                + balances.get("safe_usdce", 0)
+                + balances.get("polymarket_usdc", 0))
