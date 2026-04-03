@@ -236,6 +236,11 @@ Track Polymarket wallets and get notified of their trades.
             active_marker = " ✅" if w.get('is_active') else ""
             safe = w.get('safe_address') or 'Not set'
             text += f"*{wname}*{active_marker}\n`{safe}` — ${usdc:.2f} USDC\n\n"
+            if safe and safe != 'Not set':
+                poly_url = f"https://polymarket.com/profile/{safe}"
+                keyboard.append([InlineKeyboardButton(
+                    f"🔗 {wname} on Polymarket", url=poly_url
+                )])
 
         # Action buttons — all three show a wallet picker when >1 wallet
         keyboard.append([InlineKeyboardButton("📊 Portfolio", callback_data="wallet_portfolio_pick")])

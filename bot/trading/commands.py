@@ -562,20 +562,27 @@ class TradingCommands:
             )
             return
 
-        lines = ["✅ *Claim results*\n"]
+        lines = ["✅ *Claim submitted on-chain*\n"]
 
         if claimed:
-            lines.append("*Claimed:*")
+            lines.append("*Redeemed:*")
             for p in claimed:
                 title = (p["market"] or "Unknown")[:55]
-                lines.append(f"• {title} — ${p['amount']:.2f}")
-            lines.append(f"\n💰 *Total claimed:* ${total:.2f} USDC")
+                lines.append(f"• {title} — +${p['amount']:.2f}")
+            lines.append(f"\n💰 *Total:* +${total:.2f} USDC")
 
         if failed:
             lines.append(f"\n⚠️ *Failed ({len(failed)}):*")
             for name in failed:
                 title = (name or "Unknown")[:55]
                 lines.append(f"• {title}")
+
+        lines.append(
+            "\n⏳ _Your USDC balance and portfolio will update within a few minutes "
+            "once the blockchain indexer catches up. Tap Refresh to check._"
+        )
+
+        keyboard.insert(0, [InlineKeyboardButton("🔄 Refresh Portfolio", callback_data="wallet_portfolio_pick")])
 
         await query.edit_message_text(
             "\n".join(lines),
