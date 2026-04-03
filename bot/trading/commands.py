@@ -383,7 +383,9 @@ class TradingCommands:
             available = bal.get('polymarket_usdc', 0.0)
         else:
             balances = await self.wallet_manager.get_balances(user_id)
-            available = balances.get('polymarket_usdc', 0)
+            available = (balances.get("safe_usdc", 0)
+             + balances.get("safe_usdce", 0)
+             + balances.get("polymarket_usdc", 0))
 
         if available < 0.01:
             keyboard = [

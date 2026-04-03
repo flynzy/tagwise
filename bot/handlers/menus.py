@@ -312,7 +312,9 @@ Track Polymarket wallets and get notified of their trades.
             logger.error(f"Portfolio: error fetching positions: {positions_summary}")
             positions_summary = {"open": [], "won": [], "lost": [], "success": False}
 
-        usdc_balance = balances.get('polymarket_usdc', 0.0)
+        usdc_balance = (balances.get("safe_usdc", 0.0)
+                + balances.get("safe_usdce", 0.0)
+                + balances.get("polymarket_usdc", 0.0))
         total_pnl = stats.get('pnl_all_time', 0.0)
         realized_pnl = stats.get('realized_pnl', 0.0)
         open_pnl = stats.get('open_pnl', 0.0)
