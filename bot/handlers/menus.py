@@ -235,23 +235,22 @@ Track Polymarket wallets and get notified of their trades.
             wname = w.get('wallet_name') or f"Wallet {w['wallet_index']}"
             active_marker = " ✅" if w.get('is_active') else ""
             safe = w.get('safe_address') or 'Not set'
-            text += f"*{wname}*{active_marker}\n`{safe}` — ${usdc:.2f} USDC\n\n"
             if safe and safe != 'Not set':
                 poly_url = f"https://polymarket.com/profile/{safe}"
-                keyboard.append([InlineKeyboardButton(
-                    f"🔗 {wname} on Polymarket", url=poly_url
-                )])
+                text += f"*{wname}*{active_marker}\n`{safe}` — ${usdc:.2f} USDC \([view]({poly_url})\)\n\n"
+            else:
+                text += f"*{wname}*{active_marker}\n`{safe}` — ${usdc:.2f} USDC\n\n"
 
-        # Action buttons — all three show a wallet picker when >1 wallet
+        # Action buttons in order: Refresh → Portfolio → Withdraw → Set Active → Add → Delete → Back
+        keyboard.append([InlineKeyboardButton("🔄 Refresh", callback_data="wallet_refresh")])
         keyboard.append([InlineKeyboardButton("📊 Portfolio", callback_data="wallet_portfolio_pick")])
-        if len(wallets) < 3:
-            keyboard.append([InlineKeyboardButton("➕ Add Wallet", callback_data="wallet_add")])
+        keyboard.append([InlineKeyboardButton("📤 Withdraw USDC", callback_data="wallet_withdraw_pick")])
         if len(wallets) > 1:
             keyboard.append([InlineKeyboardButton("🔑 Set Active Wallet", callback_data="wallet_setactive")])
+        if len(wallets) < 3:
+            keyboard.append([InlineKeyboardButton("➕ Add Wallet", callback_data="wallet_add")])
         keyboard.extend([
-            [InlineKeyboardButton("📤 Withdraw USDC", callback_data="wallet_withdraw_pick")],
             [InlineKeyboardButton("🗑️ Delete a Wallet", callback_data="wallet_delete_pick")],
-            [InlineKeyboardButton("🔄 Refresh", callback_data="wallet_refresh")],
             [InlineKeyboardButton("🔙 Back to Menu", callback_data="menu_main")],
         ])
         markup = InlineKeyboardMarkup(keyboard)

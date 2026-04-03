@@ -586,7 +586,11 @@ class BuilderRelayer:
             cid = condition_id if condition_id.startswith("0x") else "0x" + condition_id
             cid_bytes = bytes.fromhex(cid[2:].zfill(64))
 
-            index_set = 1 << outcome_index  # bitmask: 0→1, 1→2, 2→4, …
+            # Always pass [1, 2] — both outcome slots for a binary market.
+            # The CTF contract pays out only the winning side and zeros the losing side,
+            # so this is safe regardless of which outcome won. Passing only a single
+            # index (e.g. [1]) would miss the "Down / No" outcome (index 2) entirely.
+            index_sets = [1, 2]
 
             ctf = self.w3.eth.contract(
                 address=Web3.to_checksum_address(CTF_ADDRESS), abi=CTF_ABI
@@ -595,7 +599,7 @@ class BuilderRelayer:
                 Web3.to_checksum_address(token),
                 parent_collection_id,
                 cid_bytes,
-                [index_set],
+                index_sets,
             ])
 
             from py_builder_relayer_client.models import SafeTransaction, OperationType
