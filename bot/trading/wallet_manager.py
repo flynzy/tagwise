@@ -775,12 +775,8 @@ class WalletManager:
 
                     # outcome_index: the API returns the index of the winning outcome
                     # For binary markets YES=0, NO=1
-                    outcome = (pos.get('outcome') or 'YES').upper()
-                    outcome_index = 1 if outcome == 'NO' else 0
-
-                    # Detect negRisk markets — Polymarket returns negRisk=true for
-                    # multi-outcome markets routed through the NegRiskAdapter.
-                    neg_risk = bool(pos.get('negRisk') or pos.get('neg_risk'))
+                    outcome_index = pos.get("outcomeIndex", 0)  # API provides this directly
+                    neg_risk = bool(pos.get("negativeRisk", False))  # Correct field name!
                     token_size = float(pos.get('size', 0) or 0)
 
                     result = await asyncio.to_thread(
