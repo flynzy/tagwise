@@ -237,7 +237,7 @@ Track Polymarket wallets and get notified of their trades.
             safe = w.get('safe_address') or 'Not set'
             if safe and safe != 'Not set':
                 poly_url = f"https://polymarket.com/profile/{safe}"
-                text += f"*{wname}*{active_marker}\n`{safe}` — ${usdc:.2f} USDC \([view]({poly_url})\)\n\n"
+                text += f"*{wname}*{active_marker}\n`{safe}` — ${usdc:.2f} USDC ([view]({poly_url}))\n\n"
             else:
                 text += f"*{wname}*{active_marker}\n`{safe}` — ${usdc:.2f} USDC\n\n"
 

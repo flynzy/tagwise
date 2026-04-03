@@ -778,6 +778,11 @@ class WalletManager:
                     outcome = (pos.get('outcome') or 'YES').upper()
                     outcome_index = 1 if outcome == 'NO' else 0
 
+                    # Detect negRisk markets — Polymarket returns negRisk=true for
+                    # multi-outcome markets routed through the NegRiskAdapter.
+                    neg_risk = bool(pos.get('negRisk') or pos.get('neg_risk'))
+                    token_size = float(pos.get('size', 0) or 0)
+
                     result = await asyncio.to_thread(
                         self.builder.redeem_positions_privy,
                         self.privy_service,
@@ -786,6 +791,8 @@ class WalletManager:
                         safe_address,
                         condition_id,
                         outcome_index,
+                        token_size,
+                        neg_risk,
                     )
 
                     if result.get('success'):

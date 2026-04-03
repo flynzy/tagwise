@@ -210,11 +210,20 @@ class PolymarketClient:
             except (ValueError, TypeError):
                 continue
 
-        # Current value of active (non-resolved) positions only
+        # ── Unrealized PnL ──────────────────────────────────────────────────
+        # Active (still-open) positions contribute their current market value.
+        # Claimable (redeemable=True, pnl > 0) positions are won but not yet
+        # withdrawn — their cashPnl is real money waiting to be claimed, so it
+        # counts as unrealized until the USDC lands in the wallet.
         current_portfolio_value = 0.0
         for pos in open_positions:
             try:
-                if not pos.get('redeemable'):
+                if pos.get('redeemable'):
+                    # Won position awaiting claim — include its PnL as unrealized
+                    pnl_val = float(pos.get('cashPnl', 0) or pos.get('pnl', 0) or 0)
+                    if pnl_val > 0:
+                        current_portfolio_value += pnl_val
+                else:
                     current_portfolio_value += float(pos.get('currentValue', 0) or 0)
             except (ValueError, TypeError):
                 continue
@@ -222,18 +231,22 @@ class PolymarketClient:
         # Use the official Polymarket PnL API value (matches what Polymarket UI shows)
         total_pnl = official_total_pnl
         open_pnl = current_portfolio_value
-        # Realized = total minus unrealized open positions
+        # Realized = total minus unrealized open/claimable positions
         closed_pnl = total_pnl - open_pnl
 
-        # ===== Calculate Win Rate (resolved positions only) =====
-        # Sources:
-        # 1. Redeemable open positions: resolved markets not yet claimed.
-        #    curPrice >= 0.99 = won, curPrice <= 0.01 = lost.
-        # 2. Activity REDEEM events: already redeemed (gone from positions API).
-        #    usdcSize > 0 = won (received payout), usdcSize == 0 = lost (worthless).
+        # ── Win / Loss counting ─────────────────────────────────────────────
+        # Rules:
+        # 1. Redeemable positions still in the positions API:
+        #    curPrice >= 0.99 → won; curPrice <= 0.01 → lost (per outcome).
+        # 2. Already-redeemed positions (only in the activity log as REDEEM events):
+        #    Group by conditionId — a binary CTF redemption generates TWO REDEEM
+        #    events (one per outcome slot). We must aggregate per condition and count
+        #    ONE win/loss per market, not one per event.
+        #    total usdcSize across all events for that conditionId > 0 → win, else → lost.
         winning_positions = 0
         losing_positions = 0
 
+        # Pending redeemable (not yet claimed)
         for pos in open_positions:
             try:
                 if not pos.get('redeemable'):
@@ -249,17 +262,23 @@ class PolymarketClient:
             except (ValueError, TypeError):
                 continue
 
+        # Already-redeemed: group by conditionId to deduplicate per-outcome events
+        redeem_by_condition: dict = {}
         for activity in all_activity:
             try:
                 if activity.get('type') != 'REDEEM':
                     continue
+                cid = activity.get('conditionId') or activity.get('condition_id') or ''
                 usdc = float(activity.get('usdcSize', 0) or 0)
-                if usdc > 0:
-                    winning_positions += 1
-                else:
-                    losing_positions += 1
+                redeem_by_condition[cid] = redeem_by_condition.get(cid, 0.0) + usdc
             except (ValueError, TypeError):
                 continue
+
+        for cid, total_usdc in redeem_by_condition.items():
+            if total_usdc > 0:
+                winning_positions += 1
+            else:
+                losing_positions += 1
 
         total_resolved = winning_positions + losing_positions
         win_rate = (winning_positions / total_resolved) * 100 if total_resolved > 0 else None
