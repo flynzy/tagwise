@@ -759,25 +759,35 @@ class WalletManager:
             failed = []
 
             for pos in redeemable:
-                market_title = pos.get('title') or pos.get('market', 'Unknown market')
-                pnl = float(pos.get('cashPnl', 0) or pos.get('pnl', 0) or 0.0)
+                # ── Replace this block inside `for pos in redeemable:` ──
+
+                market_title = pos.get("title") or pos.get("market", "Unknown market")
+                pnl = float(pos.get("cashPnl", 0) or pos.get("pnl", 0) or 0.0)
+
                 try:
-                    # condition_id is the market's bytes32 condition identifier
                     condition_id = (
-                        pos.get('conditionId')
-                        or pos.get('condition_id')
-                        or pos.get('market_id')
+                        pos.get("conditionId") or pos.get("conditionid")
+                        or pos.get("marketId")
                     )
                     if not condition_id:
-                        logger.warning(f"No condition_id for position: {market_title}")
+                        logger.warning(f"No conditionid for position {market_title}")
                         failed.append(market_title)
                         continue
+                  
+                    outcome_index = pos.get("outcomeIndex", 0)
 
-                    # outcome_index: the API returns the index of the winning outcome
-                    # For binary markets YES=0, NO=1
-                    outcome_index = pos.get("outcomeIndex", 0)  # API provides this directly
-                    neg_risk = bool(pos.get("negativeRisk", False))  # Correct field name!
-                    token_size = float(pos.get('size', 0) or 0)
+                    neg_risk = bool(pos.get("negativeRisk", False))
+
+                    collateral_token = USDC_E_ADDRESS
+
+                    token_size = float(pos.get("size", 0) or 0)
+
+                    logger.info(
+                        f"Redeem: {market_title}, cid={condition_id[:16]}, "
+                        f"neg_risk={neg_risk}, outcome_index={outcome_index}, "
+                        f"collateral={'USDC.e' if collateral_token == USDC_E_ADDRESS else 'native'}, "
+                        f"size={token_size}"
+                    )
 
                     result = await asyncio.to_thread(
                         self.builder.redeem_positions_privy,
@@ -789,6 +799,7 @@ class WalletManager:
                         outcome_index,
                         token_size,
                         neg_risk,
+                        collateral_token,  # ✅ Now passing the correct collateral
                     )
 
                     if result.get('success'):

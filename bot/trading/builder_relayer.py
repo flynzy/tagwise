@@ -634,7 +634,7 @@ class BuilderRelayer:
                 label = f"NegRisk redeem qid={condition_id[:12]}..."
             else:
                 # ── Standard CTF path ─────────────────────────────────────
-                token = collateral_token or USDC_ADDRESS
+                token = collateral_token or USDC_E_ADDRESS
                 parent_collection_id = b"\x00" * 32
 
                 # Always pass [1, 2] — the CTF pays out only the winning side
