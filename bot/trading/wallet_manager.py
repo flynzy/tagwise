@@ -434,7 +434,12 @@ class WalletManager:
             portfolio_value = 0.0
             if resp.ok:
                 data = resp.json()
-                portfolio_value = float(data.get("portfolioValue", 0) or 0)
+                if isinstance(data, list) and data:
+                    portfolio_value = float(data[0].get("portfolioValue", 0) or 0)
+                elif isinstance(data, dict):
+                    portfolio_value = float(data.get("portfolioValue", 0) or 0)
+                else:
+                    portfolio_value = 0.0
 
             # ✅ Also check on-chain USDC.e balance (what Polymarket actually uses)
             usdc_abi = [{"constant": True, "inputs": [{"name": "owner", "type": "address"}],
