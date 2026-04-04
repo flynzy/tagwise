@@ -449,11 +449,13 @@ class WalletManager:
             )
             safe_usdce = float(raw_balance) / 1_000_000
 
+            logger.info(f"Balance check for {safe_address}: portfolio={portfolio_value}, safe_usdce={safe_usdce}")
             return {
                 "polymarket_usdc": portfolio_value,
-                "safe_usdc": safe_usdce,  # ✅ Now shows actual USDC.e balance
+                "safe_usdc": safe_usdce,
             }
-        except Exception:
+        except Exception as e:
+            logger.error(f"get_balances_for_wallet FAILED: {e}", exc_info=True)
             return {"polymarket_usdc": 0.0, "safe_usdc": 0.0}
 
     # ── CLOB client that accepts an optional wallet dict ────────────
