@@ -231,7 +231,7 @@ Track Polymarket wallets and get notified of their trades.
         keyboard = []
         for i, w in enumerate(wallets):
             bal = balances_list[i]
-            usdc = bal.get('polymarket_usdc', 0.0) if isinstance(bal, dict) else 0.0
+            usdc = (bal.get('polymarket_usdc', 0.0) + bal.get('safe_usdc', 0.0)) if isinstance(bal, dict) else 0.0
             wname = w.get('wallet_name') or f"Wallet {w['wallet_index']}"
             active_marker = " ✅" if w.get('is_active') else ""
             safe = w.get('safe_address') or 'Not set'

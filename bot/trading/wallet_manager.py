@@ -427,7 +427,8 @@ class WalletManager:
 
             # Fetch portfolio value from Polymarket API
             url = f"https://data-api.polymarket.com/value?user={safe_address}"
-            resp = await asyncio.get_event_loop().run_in_executor(
+            loop = asyncio.get_running_loop()
+            resp = await loop.run_in_executor(
                 None, lambda: req.get(url, timeout=6)
             )
             portfolio_value = 0.0
@@ -443,7 +444,7 @@ class WalletManager:
                 address=Web3.to_checksum_address(USDC_E_ADDRESS), abi=usdc_abi
             )
             safe_cs = Web3.to_checksum_address(safe_address)
-            raw_balance = await asyncio.get_event_loop().run_in_executor(
+            raw_balance = await loop.run_in_executor(
                 None, lambda: usdce.functions.balanceOf(safe_cs).call()
             )
             safe_usdce = float(raw_balance) / 1_000_000
