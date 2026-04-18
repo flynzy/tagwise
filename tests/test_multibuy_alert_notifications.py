@@ -40,6 +40,7 @@ def test_send_multibuy_alerts_uses_notification_queue_when_available():
     assert first_call_kwargs["priority"] == 6
     assert first_call_kwargs["user_id"] == 111
     assert "**Multi-Buy Alert!**" in first_call_kwargs["message"]
+    assert "Bitcoin & Ethereum > Solana?" in first_call_kwargs["message"]
     assert "<b>" not in first_call_kwargs["message"]
     context.bot.send_message.assert_not_awaited()
 

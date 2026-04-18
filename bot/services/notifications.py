@@ -505,7 +505,11 @@ class NotificationService:
             for user_id in users:
                 try:
                     if self.notification_queue:
-                        await self.notification_queue.enqueue(user_id=user_id, message=message, priority=6)
+                        await self.notification_queue.enqueue(
+                            user_id=user_id,
+                            message=message,
+                            priority=6,  # Match multi-buy copy trade alert priority tier
+                        )
                     else:
                         await context.bot.send_message(chat_id=user_id, text=message, parse_mode='Markdown')
                     await asyncio.sleep(0.05)
