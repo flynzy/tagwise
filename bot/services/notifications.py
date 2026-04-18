@@ -430,8 +430,12 @@ class NotificationService:
 
             if cache_key in self._multibuy_processed_cache:
                 cached_time = self._multibuy_processed_cache[cache_key]
-                if (now - cached_time).total_seconds() < 3600:
-                    logger.debug("⏭️ Multi-buy already processed - skipping")
+                age_seconds = (now - cached_time).total_seconds()
+                if age_seconds < 3600:
+                    logger.info(
+                        f"⏭️ Multi-buy already processed - skipping "
+                        f"(cache_age={int(age_seconds)}s, ttl=3600s, market={str(market_id)[:20]}..., outcome={outcome})"
+                    )
                     return
 
             logger.info(
@@ -469,8 +473,17 @@ class NotificationService:
         try:
             users = await self.db.get_users_with_multibuy_alerts()
             if not users:
-                logger.debug("No users subscribed to multi-buy alerts")
+                logger.warning(
+                    "⚠️ Multi-buy alert dropped: get_users_with_multibuy_alerts returned 0 users "
+                    "(requires user_subscriptions.multibuy_enabled = TRUE)"
+                )
                 return
+
+            logger.info(
+                f"📣 Multi-buy alert delivery starting: users={len(users)}, "
+                f"queue_enabled={self.notification_queue is not None}, "
+                f"market={str(market_id)[:20]}..., outcome={outcome}, wallets={len(wallet_addresses)}"
+            )
 
             wallet_summary = []
             for i, wallet in enumerate(wallet_addresses[:5], 1):
@@ -491,6 +504,9 @@ class NotificationService:
                 f"_Multiple tracked wallets are buying the same outcome_"
             )
 
+            sent_count = 0
+            failed_count = 0
+
             for user_id in users:
                 try:
                     # Use the notification queue for rate limiting + retry
@@ -503,10 +519,14 @@ class NotificationService:
                             chat_id=user_id, text=message, parse_mode='Markdown'
                         )
                     await asyncio.sleep(0.05)
+                    sent_count += 1
                 except Exception as e:
+                    failed_count += 1
                     logger.error(f"Failed to send alert to {user_id}: {e}")
 
-            logger.info(f"Sent multi-buy alerts to {len(users)} users")
+            logger.info(
+                f"Sent multi-buy alerts: eligible={len(users)}, queued_or_sent={sent_count}, failed={failed_count}"
+            )
         except Exception as e:
             logger.error(f"Error sending multi-buy alerts: {e}")
 
