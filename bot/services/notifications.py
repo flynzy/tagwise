@@ -478,15 +478,18 @@ class NotificationService:
         """Send multi-buy alerts to users who track 2+ of the buying wallets."""
         try:
             # Find users who track at least 2 of the wallets involved in the multi-buy
+            logger.info(f"🔍 _send_multibuy_alerts: checking {len(wallet_addresses)} wallets: {wallet_addresses}")
             user_wallet_count = Counter()
             for addr in wallet_addresses:
                 ids = await self.db.get_users_tracking_wallet(addr)
+                logger.info(f"   wallet {addr[:10]}... tracked by users: {ids}")
                 for uid in ids:
                     user_wallet_count[uid] += 1
 
+            logger.info(f"   user tracking counts: {dict(user_wallet_count)}")
             users = [uid for uid, count in user_wallet_count.items() if count >= 2]
             if not users:
-                logger.debug("No users track 2+ of the multi-buy wallets — skipping alert")
+                logger.warning(f"⚠️ No users track 2+ of the multi-buy wallets — skipping alert. Counts: {dict(user_wallet_count)}")
                 return
 
             wallet_summary = []
