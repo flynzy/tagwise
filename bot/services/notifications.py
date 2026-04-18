@@ -475,7 +475,7 @@ class NotificationService:
             if not users:
                 logger.warning(
                     "⚠️ Multi-buy alert dropped: get_users_with_multibuy_alerts returned 0 users "
-                    "(requires user_subscriptions.multibuy_enabled = TRUE)"
+                    "(requires multi-buy alerts to be enabled for at least one user)"
                 )
                 return
 
@@ -504,7 +504,7 @@ class NotificationService:
                 f"_Multiple tracked wallets are buying the same outcome_"
             )
 
-            sent_count = 0
+            successful_count = 0
             failed_count = 0
 
             for user_id in users:
@@ -518,14 +518,14 @@ class NotificationService:
                         await context.bot.send_message(
                             chat_id=user_id, text=message, parse_mode='Markdown'
                         )
+                    successful_count += 1
                     await asyncio.sleep(0.05)
-                    sent_count += 1
                 except Exception as e:
                     failed_count += 1
                     logger.error(f"Failed to send alert to {user_id}: {e}")
 
             logger.info(
-                f"Sent multi-buy alerts: eligible={len(users)}, queued_or_sent={sent_count}, failed={failed_count}"
+                f"Completed multi-buy alert delivery: eligible={len(users)}, successful={successful_count}, failed={failed_count}"
             )
         except Exception as e:
             logger.error(f"Error sending multi-buy alerts: {e}")

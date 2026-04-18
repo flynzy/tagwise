@@ -33,7 +33,7 @@ async def test_send_multibuy_alerts_logs_when_no_eligible_users(caplog):
 @pytest.mark.asyncio
 async def test_multibuy_dedup_skip_logged_at_info(caplog):
     db = AsyncMock()
-    db.record_buy_for_multibuy = AsyncMock(return_value=True)
+    db.record_buy_for_multibuy = AsyncMock(return_value=False)
     db.get_multibuy_wallets = AsyncMock(return_value=["0xabc", "0xdef"])
     db.get_recent_buys_for_market = AsyncMock(
         return_value=[
@@ -57,9 +57,8 @@ async def test_multibuy_dedup_skip_logged_at_info(caplog):
         "title": "Test Market",
     }
 
-    await service.check_and_process_multibuy(trade, "0xabc", context)
-
     with caplog.at_level(logging.INFO):
+        await service.check_and_process_multibuy(trade, "0xabc", context)
         await service.check_and_process_multibuy(trade, "0xdef", context)
 
     assert "Multi-buy already processed - skipping" in caplog.text
