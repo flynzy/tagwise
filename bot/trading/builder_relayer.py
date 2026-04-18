@@ -539,6 +539,136 @@ class BuilderRelayer:
             logger.error(f"Error depositing to Safe (Privy): {e}", exc_info=True)
             return {'success': False, 'error': str(e)}
 
+    def redeem_positions_privy(
+        self,
+        privy_service,
+        wallet_id: str,
+        eoa_address: str,
+        safe_address: str,
+        condition_id: str,
+        outcome_index: int,
+        token_size: float = 0.0,
+        neg_risk: bool = False,
+        collateral_token: str = None,
+    ) -> Dict:
+        """
+        Redeem a resolved winning CTF or NegRisk position gaslessly.
+
+        For standard binary markets:
+            Calls CTF.redeemPositions(collateral, parentCollectionId, conditionId, [1, 2])
+
+        For negRisk (multi-outcome) markets:
+            Calls NegRiskAdapter.redeemPositions(questionId, amounts)
+            where amounts[outcomeIndex] = token_size * 1e6
+
+        Parameters
+        ----------
+        condition_id  : bytes32 hex condition/question ID
+        outcome_index : 0 = YES/Up, 1 = NO/Down, etc.
+        token_size    : decimal size of tokens held (for negRisk; e.g. 6.4)
+        neg_risk      : True if this is a negRisk/multi-outcome market
+        collateral_token: override USDC address (defaults to native USDC)
+        """
+        # Standard CTF contract on Polygon (Gnosis Conditional Token Framework)
+        CTF_ADDRESS = "0x4D97DCd97eC945f40cF65F87097ACe5EA0476045"
+        # NegRisk Adapter / NegRisk CTF Exchange on Polygon
+        # This contract owns the ABI: redeemPositions(bytes32 questionId, uint256[] amounts)
+        NEG_RISK_ADAPTER = "0xd91E80cF2E7be2e162c6513ceD06f1dD0dA35296"
+
+        CTF_REDEEM_ABI = [{
+            "name": "redeemPositions",
+            "type": "function",
+            "inputs": [
+                {"name": "collateralToken", "type": "address"},
+                {"name": "parentCollectionId", "type": "bytes32"},
+                {"name": "conditionId", "type": "bytes32"},
+                {"name": "indexSets", "type": "uint256[]"},
+            ],
+            "outputs": [],
+            "stateMutability": "nonpayable",
+        }]
+
+        NEG_RISK_REDEEM_ABI = [{
+            "name": "redeemPositions",
+            "type": "function",
+            "inputs": [
+                {"name": "questionId", "type": "bytes32"},
+                {"name": "amounts", "type": "uint256[]"},
+            ],
+            "outputs": [],
+            "stateMutability": "nonpayable",
+        }]
+
+        try:
+            client, _ = self._get_relay_client_privy(privy_service, wallet_id, eoa_address)
+
+            # Normalise condition_id to bytes32 bytes
+            cid = condition_id if condition_id.startswith("0x") else "0x" + condition_id
+            cid_bytes = bytes.fromhex(cid[2:].zfill(64))
+
+            from py_builder_relayer_client.models import SafeTransaction, OperationType
+
+            if neg_risk:
+                # ── NegRisk path ───────────────────────────────────────────
+                # Build amounts array: only the held outcome slot is non-zero.
+                # The adapter burns those tokens and releases USDC for the winning side.
+                # Use a 2-element array (binary market); use max uint256 to drain all.
+                MAX = 2**256 - 1
+                # We want to redeem everything we hold for our outcome_index
+                if token_size and token_size > 0:
+                    token_units = int(token_size * 1_000_000)  # USDC has 6 decimals
+                else:
+                    token_units = MAX  # fallback: pass max to drain all
+
+                # Build amounts: set our outcome slot, 0 for the other
+                num_outcomes = max(outcome_index + 1, 2)
+                amounts = [0] * num_outcomes
+                amounts[outcome_index] = token_units
+
+                adapter = self.w3.eth.contract(
+                    address=Web3.to_checksum_address(NEG_RISK_ADAPTER),
+                    abi=NEG_RISK_REDEEM_ABI,
+                )
+                calldata = adapter.encode_abi("redeemPositions", [cid_bytes, amounts])
+                target = NEG_RISK_ADAPTER
+                label = f"NegRisk redeem qid={condition_id[:12]}..."
+            else:
+                # ── Standard CTF path ─────────────────────────────────────
+                token = collateral_token or USDC_E_ADDRESS
+                parent_collection_id = b"\x00" * 32
+
+                # Always pass [1, 2] — the CTF pays out only the winning side
+                ctf = self.w3.eth.contract(
+                    address=Web3.to_checksum_address(CTF_ADDRESS), abi=CTF_REDEEM_ABI
+                )
+                calldata = ctf.encode_abi("redeemPositions", [
+                    Web3.to_checksum_address(token),
+                    parent_collection_id,
+                    cid_bytes,
+                    [1, 2],
+                ])
+                target = CTF_ADDRESS
+                label = f"CTF redeem cid={condition_id[:12]}..."
+
+            txn = SafeTransaction(to=target, data=calldata, value="0", operation=OperationType.Call)
+            response = client.execute([txn], label)
+
+            result = client.poll_until_state(
+                transaction_id=response.transaction_id,
+                states=["STATE_CONFIRMED"],
+                fail_state="STATE_FAILED",
+                max_polls=20,
+                poll_frequency=3000,
+            )
+            if result:
+                logger.info(f"✅ Redeemed {'NegRisk' if neg_risk else 'CTF'} position {condition_id[:12]} for Safe {safe_address}")
+                return {"success": True, "tx_hash": response.transaction_hash}
+            return {"success": False, "error": "Redeem tx timed out"}
+
+        except Exception as e:
+            logger.error(f"Error redeeming position (neg_risk={neg_risk}): {e}", exc_info=True)
+            return {"success": False, "error": str(e)}
+
     def get_safe_status(self, eoa_address: str) -> Dict:
             """
             Get the status of a Safe for an EOA, checking allowances for BOTH CTF exchanges.

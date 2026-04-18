@@ -39,6 +39,7 @@ class TradingCommands:
         self._pending_imports = {}
         self._pending_withdraws = {}
         self._pending_settings = {}  # Track which setting user is editing
+        self._pending_wallet_name = {}  # Track users naming a new wallet
     
     # ==================== WALLET COMMANDS ====================
     
@@ -68,9 +69,174 @@ class TradingCommands:
         user_id = update.effective_user.id
         action = query.data.replace("wallet_", "")
 
-        if action == "portfolio":
+        if action == "portfolio_pick":
+            wallets = await self.wallet_manager.get_wallets(user_id)
+            if not wallets:
+                await self.bot.menu_handlers.show_trading_wallet(query, user_id)
+                return
+            if len(wallets) == 1:
+                await query.edit_message_text("⏳ Loading portfolio...")
+                await self.bot.menu_handlers.show_portfolio(query, user_id, wallet_db_id=wallets[0]['id'])
+                return
+            keyboard = []
+            for w in wallets:
+                wname = w.get('wallet_name') or f"Wallet {w['wallet_index']}"
+                active_marker = " ✅" if w.get('is_active') else ""
+                keyboard.append([InlineKeyboardButton(
+                    f"📊 {wname}{active_marker}", callback_data=f"wallet_portfolio_{w['id']}"
+                )])
+            keyboard.append([InlineKeyboardButton("🔙 Back", callback_data="menu_trading_wallet")])
+            await query.edit_message_text(
+                "📊 *Portfolio*\n\nChoose which wallet to view:",
+                parse_mode="Markdown",
+                reply_markup=InlineKeyboardMarkup(keyboard)
+            )
+
+        elif action.startswith("portfolio_"):
+            wallet_db_id = int(action.replace("portfolio_", ""))
+            await query.edit_message_text("⏳ Loading portfolio...")
+            await self.bot.menu_handlers.show_portfolio(query, user_id, wallet_db_id=wallet_db_id)
+
+        elif action == "portfolio":
             await query.edit_message_text("⏳ Loading portfolio...")
             await self.bot.menu_handlers.show_portfolio(query, user_id)
+
+        elif action.startswith("positions_"):
+            wallet_db_id = int(action.replace("positions_", ""))
+            await query.edit_message_text("⏳ Loading positions...")
+            await self.bot.menu_handlers.show_open_positions(query, user_id, wallet_db_id)
+
+        elif action.startswith("wonmarkets_"):
+            wallet_db_id = int(action.replace("wonmarkets_", ""))
+            await query.edit_message_text("⏳ Loading won markets...")
+            await self.bot.menu_handlers.show_won_markets(query, user_id, wallet_db_id)
+
+        elif action.startswith("lostmarkets_"):
+            wallet_db_id = int(action.replace("lostmarkets_", ""))
+            await query.edit_message_text("⏳ Loading lost markets...")
+            await self.bot.menu_handlers.show_lost_markets(query, user_id, wallet_db_id)
+
+        elif action == "add":
+            await query.edit_message_text(
+                "➕ *Add New Wallet*\n\n"
+                "Send a name for your new wallet:\n"
+                "_(e.g. 'Trading', 'Savings')_\n\n"
+                "_Or click Cancel below._",
+                parse_mode="Markdown",
+                reply_markup=InlineKeyboardMarkup([[
+                    InlineKeyboardButton("❌ Cancel", callback_data="menu_trading_wallet")
+                ]])
+            )
+            self._pending_wallet_name[user_id] = True
+
+        elif action == "setactive":
+            wallets = await self.wallet_manager.get_wallets(user_id)
+            if len(wallets) <= 1:
+                await self.bot.menu_handlers.show_trading_wallet(query, user_id)
+                return
+            keyboard = []
+            for w in wallets:
+                wname = w.get('wallet_name') or f"Wallet {w['wallet_index']}"
+                active_marker = " ✅" if w.get('is_active') else ""
+                keyboard.append([InlineKeyboardButton(
+                    f"{wname}{active_marker}", callback_data=f"wallet_setactive_{w['id']}"
+                )])
+            keyboard.append([InlineKeyboardButton("🔙 Back", callback_data="menu_trading_wallet")])
+            await query.edit_message_text(
+                "🔑 *Set Active Wallet*\n\nChoose which wallet to use for trading:",
+                parse_mode="Markdown",
+                reply_markup=InlineKeyboardMarkup(keyboard)
+            )
+
+        elif action.startswith("setactive_"):
+            wallet_db_id = int(action.replace("setactive_", ""))
+            ok = await self.wallet_manager.set_active_wallet(user_id, wallet_db_id)
+            if ok:
+                await query.answer("✅ Active wallet updated!", show_alert=False)
+            await self.bot.menu_handlers.show_trading_wallet(query, user_id)
+
+        elif action == "withdraw_pick":
+            wallets = await self.wallet_manager.get_wallets(user_id)
+            if len(wallets) == 1:
+                # Only one wallet — go straight to withdraw
+                self._pending_withdraws[user_id] = {'wallet': wallets[0]}
+                await self.start_withdraw(query, user_id, wallet=wallets[0])
+                return
+            keyboard = []
+            for w in wallets:
+                wname = w.get('wallet_name') or f"Wallet {w['wallet_index']}"
+                keyboard.append([InlineKeyboardButton(
+                    f"📤 {wname}", callback_data=f"wallet_withdraw_sel_{w['id']}"
+                )])
+            keyboard.append([InlineKeyboardButton("🔙 Back", callback_data="menu_trading_wallet")])
+            await query.edit_message_text(
+                "💸 *Withdraw USDC*\n\nSelect the wallet to withdraw from:",
+                parse_mode="Markdown",
+                reply_markup=InlineKeyboardMarkup(keyboard)
+            )
+
+        elif action.startswith("withdraw_sel_"):
+            wallet_db_id = int(action.replace("withdraw_sel_", ""))
+            wallet = await self.wallet_manager.get_wallet_by_id(user_id, wallet_db_id)
+            if not wallet:
+                await query.answer("Wallet not found.", show_alert=True)
+                return
+            await self.start_withdraw(query, user_id, wallet=wallet)
+
+        elif action == "delete_pick":
+            wallets = await self.wallet_manager.get_wallets(user_id)
+            keyboard = []
+            for w in wallets:
+                wname = w.get('wallet_name') or f"Wallet {w['wallet_index']}"
+                keyboard.append([InlineKeyboardButton(
+                    f"🗑️ {wname}", callback_data=f"wallet_delete_{w['id']}"
+                )])
+            keyboard.append([InlineKeyboardButton("🔙 Back", callback_data="menu_trading_wallet")])
+            await query.edit_message_text(
+                "🗑️ *Delete Wallet*\n\nChoose which wallet to delete:",
+                parse_mode="Markdown",
+                reply_markup=InlineKeyboardMarkup(keyboard)
+            )
+
+        elif action.startswith("delete_") and not action.startswith("delete_pick") and not action.startswith("delete_sel"):
+            try:
+                wallet_db_id = int(action.replace("delete_", ""))
+                wallet = await self.wallet_manager.get_wallet_by_id(user_id, wallet_db_id)
+                if not wallet:
+                    await query.answer("Wallet not found.", show_alert=True)
+                    return
+                wname = wallet.get('wallet_name') or f"Wallet {wallet['wallet_index']}"
+                keyboard = [
+                    [InlineKeyboardButton("⚠️ Yes, Delete", callback_data=f"wallet_confirmdelete_{wallet_db_id}")],
+                    [InlineKeyboardButton("❌ Cancel", callback_data="menu_trading_wallet")],
+                ]
+                await query.edit_message_text(
+                    f"⚠️ *Delete {wname}?*\n\n"
+                    "This removes the wallet from Tagwise.\n"
+                    "Your funds remain safe on the blockchain.",
+                    parse_mode="Markdown",
+                    reply_markup=InlineKeyboardMarkup(keyboard)
+                )
+            except ValueError:
+                pass
+
+        elif action.startswith("confirmdelete_"):
+            try:
+                wallet_db_id = int(action.replace("confirmdelete_", ""))
+                success = await self.wallet_manager.delete_wallet_by_id(user_id, wallet_db_id)
+                keyboard = [[InlineKeyboardButton("🔙 Back to Wallets", callback_data="menu_trading_wallet")]]
+                if success:
+                    await query.edit_message_text(
+                        "🗑️ *Wallet Deleted*\n\n"
+                        "The wallet has been removed from Tagwise.\n"
+                        "Your funds remain safe on-chain.",
+                        parse_mode="Markdown",
+                        reply_markup=InlineKeyboardMarkup(keyboard)
+                    )
+                else:
+                    await query.edit_message_text("❌ Failed to delete wallet.", reply_markup=InlineKeyboardMarkup(keyboard))
+            except ValueError:
+                pass
 
         elif action in ("create", "import"):
             # Wallet provisioning is now automatic — just show the wallet page
@@ -210,10 +376,16 @@ class TradingCommands:
             )
     
         
-    async def start_withdraw(self, query, user_id: int):
-        balances = await self.wallet_manager.get_balances(user_id)
-
-        available = balances.get('polymarket_usdc', 0) # polymarket_usdc is safe_usdc
+    async def start_withdraw(self, query, user_id: int, wallet: dict = None):
+        """Start withdrawal flow. If wallet is provided, use its balance directly."""
+        if wallet:
+            bal = await self.wallet_manager.get_balances_for_wallet(wallet)
+            available = bal.get('polymarket_usdc', 0.0)
+        else:
+            balances = await self.wallet_manager.get_balances(user_id)
+            available = (balances.get("safe_usdc", 0)
+             + balances.get("safe_usdce", 0)
+             + balances.get("polymarket_usdc", 0))
 
         if available < 0.01:
             keyboard = [
@@ -227,7 +399,7 @@ class TradingCommands:
             )
             return None
 
-        self._pending_withdraws[user_id] = {"available": available}
+        self._pending_withdraws[user_id] = {"available": available, "wallet": wallet}
         keyboard = [[InlineKeyboardButton("❌ Cancel", callback_data="wallet_cancel")]]
         await query.edit_message_text(
             f"📤 *Withdraw USDC*\n\n"
@@ -392,20 +564,27 @@ class TradingCommands:
             )
             return
 
-        lines = ["✅ *Claim results*\n"]
+        lines = ["✅ *Claim submitted on-chain*\n"]
 
         if claimed:
-            lines.append("*Claimed:*")
+            lines.append("*Redeemed:*")
             for p in claimed:
                 title = (p["market"] or "Unknown")[:55]
-                lines.append(f"• {title} — ${p['amount']:.2f}")
-            lines.append(f"\n💰 *Total claimed:* ${total:.2f} USDC")
+                lines.append(f"• {title} — +${p['amount']:.2f}")
+            lines.append(f"\n💰 *Total:* +${total:.2f} USDC")
 
         if failed:
             lines.append(f"\n⚠️ *Failed ({len(failed)}):*")
             for name in failed:
                 title = (name or "Unknown")[:55]
                 lines.append(f"• {title}")
+
+        lines.append(
+            "\n⏳ _Your USDC balance and portfolio will update within a few minutes "
+            "once the blockchain indexer catches up. Tap Refresh to check._"
+        )
+
+        keyboard.insert(0, [InlineKeyboardButton("🔄 Refresh Portfolio", callback_data="wallet_portfolio_pick")])
 
         await query.edit_message_text(
             "\n".join(lines),

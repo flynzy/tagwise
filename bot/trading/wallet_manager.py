@@ -342,13 +342,128 @@ class WalletManager:
                 logger.error(f"Setup error for user {user_id}: {e}", exc_info=True)
                 return {'success': False, 'error': str(e)}
 
+    # ── Multi-wallet helpers ─────────────────────────────────────────
+
     async def get_wallet(self, user_id: int) -> Optional[Dict]:
-        """Get wallet info for a user (without private key)"""
-        return await self.db.get_user_wallet(user_id)
+        """Get the active (or first) wallet for a user. Backward-compat shim."""
+        return await self.db.get_active_user_wallet(user_id)
+
+    async def get_wallets(self, user_id: int):
+        """Get all wallets for a user, ordered by wallet_index."""
+        return await self.db.get_all_user_wallets(user_id)
+
+    async def get_wallet_by_id(self, user_id: int, wallet_db_id: int) -> Optional[Dict]:
+        """Get a specific wallet by its DB id, ensuring it belongs to user_id."""
+        return await self.db.get_user_wallet_by_id(wallet_db_id, user_id)
+
+    async def count_wallets(self, user_id: int) -> int:
+        return await self.db.count_user_wallets(user_id)
 
     async def delete_wallet(self, user_id: int) -> bool:
-        """Delete a user's wallet"""
+        """Delete the active wallet for a user (legacy / single-wallet fallback)."""
+        wallet = await self.get_wallet(user_id)
+        if wallet and wallet.get('id'):
+            return await self.db.delete_user_wallet_by_id(user_id, wallet['id'])
         return await self.db.delete_user_wallet(user_id)
+
+    async def delete_wallet_by_id(self, user_id: int, wallet_db_id: int) -> bool:
+        """Delete a specific wallet by its DB id."""
+        return await self.db.delete_user_wallet_by_id(user_id, wallet_db_id)
+
+    async def set_active_wallet(self, user_id: int, wallet_db_id: int) -> bool:
+        return await self.db.set_active_wallet(user_id, wallet_db_id)
+
+    async def rename_wallet(self, user_id: int, wallet_db_id: int, name: str) -> bool:
+        return await self.db.rename_trading_wallet(user_id, wallet_db_id, name)
+
+    async def create_additional_wallet(self, user_id: int, wallet_name: str = None) -> Dict:
+        """Create a brand-new wallet (2nd or 3rd slot) for a user."""
+        count = await self.count_wallets(user_id)
+        MAX_WALLETS = 3
+        if count >= MAX_WALLETS:
+            return {'success': False, 'error': f'You can have at most {MAX_WALLETS} wallets.'}
+
+        try:
+            privy_result = await self.privy_service.create_user_with_wallet(user_id)
+            eoa_address = privy_result['wallet_address']
+            privy_user_id = privy_result['privy_user_id']
+            privy_wallet_id = privy_result['privy_wallet_id']
+
+            safe_address = None
+            if self.builder:
+                safe_address = self.builder.derive_safe_address(eoa_address)
+
+            wallet_db_id = await self.db.save_new_wallet(
+                user_id=user_id,
+                address=eoa_address.lower(),
+                safe_address=safe_address,
+                wallet_type='privy',
+                privy_user_id=privy_user_id,
+                privy_wallet_id=privy_wallet_id,
+                wallet_name=wallet_name,
+            )
+
+            if wallet_db_id:
+                return {
+                    'success': True,
+                    'address': eoa_address,
+                    'safe_address': safe_address,
+                    'wallet_db_id': wallet_db_id,
+                }
+            return {'success': False, 'error': 'Failed to save wallet.'}
+
+        except Exception as e:
+            logger.error(f"Error creating additional wallet: {e}", exc_info=True)
+            return {'success': False, 'error': str(e)}
+
+    async def get_balances_for_wallet(self, wallet: Dict) -> Dict:
+        if not wallet:
+            return {"polymarket_usdc": 0.0, "safe_usdc": 0.0}
+        safe_address = wallet.get("safe_address")
+        if not safe_address:
+            return {"polymarket_usdc": 0.0, "safe_usdc": 0.0}
+        try:
+            import requests as req
+
+            # Fetch portfolio value from Polymarket API
+            url = f"https://data-api.polymarket.com/value?user={safe_address}"
+            loop = asyncio.get_running_loop()
+            resp = await loop.run_in_executor(
+                None, lambda: req.get(url, timeout=6)
+            )
+            portfolio_value = 0.0
+            if resp.ok:
+                data = resp.json()
+                if isinstance(data, list) and data:
+                    portfolio_value = float(data[0].get("portfolioValue", 0) or 0)
+                elif isinstance(data, dict):
+                    portfolio_value = float(data.get("portfolioValue", 0) or 0)
+                else:
+                    portfolio_value = 0.0
+
+            # ✅ Also check on-chain USDC.e balance (what Polymarket actually uses)
+            usdc_abi = [{"constant": True, "inputs": [{"name": "owner", "type": "address"}],
+                        "name": "balanceOf", "outputs": [{"name": "balance", "type": "uint256"}],
+                        "type": "function"}]
+            usdce = self.w3.eth.contract(
+                address=Web3.to_checksum_address(USDC_E_ADDRESS), abi=usdc_abi
+            )
+            safe_cs = Web3.to_checksum_address(safe_address)
+            raw_balance = await loop.run_in_executor(
+                None, lambda: usdce.functions.balanceOf(safe_cs).call()
+            )
+            safe_usdce = float(raw_balance) / 1_000_000
+
+            logger.info(f"Balance check for {safe_address}: portfolio={portfolio_value}, safe_usdce={safe_usdce}")
+            return {
+                "polymarket_usdc": portfolio_value,
+                "safe_usdc": safe_usdce,
+            }
+        except Exception as e:
+            logger.error(f"get_balances_for_wallet FAILED: {e}", exc_info=True)
+            return {"polymarket_usdc": 0.0, "safe_usdc": 0.0}
+
+    # ── CLOB client that accepts an optional wallet dict ────────────
 
     async def get_balances(self, user_id: int) -> Dict:
         """Get wallet balances (all RPC calls run concurrently)."""
@@ -451,6 +566,57 @@ class WalletManager:
                     pass
             logger.error(f"Error fetching Polymarket balance: {e}")
             return 0.0
+
+    async def get_positions_summary_for_wallet(self, wallet: Dict) -> Dict:
+        """
+        Fetch and categorise all positions for a wallet.
+        Returns {
+          "open": [...],
+          "won": [...],   # redeemable=True, pnl > 0
+          "lost": [...],  # resolved but losing (currentValue < 0.01 or pnl <= 0 and resolved)
+          "success": bool
+        }
+        """
+        try:
+            safe_address = wallet.get('safe_address')
+            if not safe_address:
+                return {"success": False, "open": [], "won": [], "lost": []}
+            loop = asyncio.get_running_loop()
+            positions = await loop.run_in_executor(None, lambda: _fetch_positions(safe_address))
+            open_pos, won_pos, lost_pos = [], [], []
+            for pos in positions or []:
+                title = pos.get("title") or pos.get("market", "Unknown market")
+                pnl = float(pos.get("cashPnl", 0) or pos.get("pnl", 0) or 0.0)
+                size = float(pos.get("size", 0.0) or 0.0)
+                current_value = float(pos.get("currentValue", 0) or 0.0)
+                redeemable = bool(pos.get("redeemable"))
+                outcome = pos.get("outcome", "")
+                entry = {"title": title, "pnl": pnl, "size": size, "current_value": current_value, "outcome": outcome}
+
+                if redeemable and pnl > 0:
+                    won_pos.append(entry)
+                elif redeemable and pnl <= 0:
+                    # Resolved but lost
+                    lost_pos.append(entry)
+                elif current_value < 0.01 and size > 0:
+                    # Likely worthless/lost market even if redeemable flag not set yet
+                    lost_pos.append(entry)
+                elif current_value >= 0.01:
+                    open_pos.append(entry)
+            return {"success": True, "open": open_pos, "won": won_pos, "lost": lost_pos}
+        except Exception as e:
+            logger.error(f"Error getting positions summary: {e}", exc_info=True)
+            return {"success": False, "open": [], "won": [], "lost": []}
+
+    async def get_won_markets_for_wallet(self, wallet: Dict) -> Dict:
+        """Get won/claimable markets for a specific wallet dict (multi-wallet support)."""
+        result = await self.get_positions_summary_for_wallet(wallet)
+        return {"success": result["success"], "markets": result.get("won", [])}
+
+    async def get_lost_markets_for_wallet(self, wallet: Dict) -> Dict:
+        """Get lost markets for a specific wallet dict."""
+        result = await self.get_positions_summary_for_wallet(wallet)
+        return {"success": result["success"], "markets": result.get("lost", [])}
 
     async def get_won_markets(self, user_id: int) -> Dict:
         """
@@ -564,10 +730,13 @@ class WalletManager:
 
     async def claim_winnings(self, user_id: int) -> Dict:
         """
-        Fetch all resolved winning positions and redeem them via the CTF contract.
+        Fetch all resolved winning positions and redeem them via the CTF contract
+        using the gasless Builder Relayer (Privy-backed).
+
         Returns a summary of claimed markets and total USDC received.
         """
-        import asyncio
+        if not self.builder:
+            return {'success': False, 'error': 'Builder Relayer not configured'}
 
         wallet = await self.get_wallet(user_id)
         if not wallet:
@@ -578,20 +747,14 @@ class WalletManager:
             return {'success': False, 'error': 'No Privy wallet configured'}
 
         safe_address = wallet.get('safe_address')
+        eoa_address = wallet.get('address')
         if not safe_address:
             return {'success': False, 'error': 'Safe not set up. Run /setup first.'}
 
         try:
-            client = await self._get_clob_client(user_id)
-            if not client:
-                return {'success': False, 'error': 'Could not connect to Polymarket'}
-
+            # Step 1: Fetch all positions from the Polymarket data API
             loop = asyncio.get_running_loop()
-
-            # Step 1: Get all open positions from CLOB
-            positions = await loop.run_in_executor(
-                None, lambda: _fetch_positions(safe_address)
-            )
+            positions = await loop.run_in_executor(None, lambda: _fetch_positions(safe_address))
 
             if not positions:
                 return {
@@ -601,15 +764,12 @@ class WalletManager:
                     'message': 'No open positions found.'
                 }
 
-            # Step 2: Filter for redeemable (resolved, winning) positions
+            # Step 2: Filter for truly redeemable winning positions
+            # redeemable=True AND pnl > 0 means the position is won and claimable
             redeemable = []
             for pos in positions:
-                # Polymarket marks resolved positions with redeemable=True
-                if pos.get('redeemable') or (
-                    pos.get('outcomeIndex') is not None and
-                    pos.get('marketStatus') in ('resolved', 'closed') and
-                    float(pos.get('size', 0)) > 0
-                ):
+                pnl = float(pos.get('cashPnl', 0) or pos.get('pnl', 0) or 0.0)
+                if pos.get('redeemable') and pnl > 0:
                     redeemable.append(pos)
 
             if not redeemable:
@@ -617,38 +777,72 @@ class WalletManager:
                     'success': True,
                     'claimed': [],
                     'total_claimed': 0.0,
-                    'message': 'No redeemable positions found.'
+                    'message': 'No redeemable winning positions found.'
                 }
 
-            # Step 3: Redeem each position
+            # Step 3: Redeem each position via CTF.redeemPositions (gasless)
             claimed = []
             failed = []
 
             for pos in redeemable:
+                # ── Replace this block inside `for pos in redeemable:` ──
+
+                market_title = pos.get("title") or pos.get("market", "Unknown market")
+                pnl = float(pos.get("cashPnl", 0) or pos.get("pnl", 0) or 0.0)
+
                 try:
-                    condition_id = pos.get('conditionId') or pos.get('condition_id') or pos.get('market', {}).get('conditionId')
-                    market_title = pos.get('title') or pos.get('market', 'Unknown market')
-                    size = float(pos.get('size', 0))
+                    condition_id = (
+                        pos.get("conditionId") or pos.get("conditionid")
+                        or pos.get("marketId")
+                    )
+                    if not condition_id:
+                        logger.warning(f"No conditionid for position {market_title}")
+                        failed.append(market_title)
+                        continue
+                  
+                    outcome_index = pos.get("outcomeIndex", 0)
 
+                    neg_risk = bool(pos.get("negativeRisk", False))
 
-                    result = await loop.run_in_executor(
-                        None,
-                        lambda cid=condition_id: client.redeem_position(condition_id=cid)
+                    collateral_token = USDC_E_ADDRESS
+
+                    token_size = float(pos.get("size", 0) or 0)
+
+                    logger.info(
+                        f"Redeem: {market_title}, cid={condition_id[:16]}, "
+                        f"neg_risk={neg_risk}, outcome_index={outcome_index}, "
+                        f"collateral={'USDC.e' if collateral_token == USDC_E_ADDRESS else 'native'}, "
+                        f"size={token_size}"
                     )
 
-                    if result:
+                    result = await asyncio.to_thread(
+                        self.builder.redeem_positions_privy,
+                        self.privy_service,
+                        privy_wallet_id,
+                        eoa_address,
+                        safe_address,
+                        condition_id,
+                        outcome_index,
+                        token_size,
+                        neg_risk,
+                        collateral_token,  # ✅ Now passing the correct collateral
+                    )
+
+                    if result.get('success'):
                         claimed.append({
                             'market': market_title,
-                            'amount': size,
+                            'amount': pnl,
                             'condition_id': condition_id,
+                            'tx_hash': result.get('tx_hash', ''),
                         })
-                        logger.info(f"Claimed position for user {user_id}: {market_title} ({size:.2f} USDC)")
+                        logger.info(f"Claimed position for user {user_id}: {market_title} (+${pnl:.2f})")
                     else:
+                        logger.warning(f"Failed to redeem {market_title}: {result.get('error')}")
                         failed.append(market_title)
 
                 except Exception as e:
-                    logger.warning(f"Failed to redeem position {pos.get('condition_id')}: {e}")
-                    failed.append(pos.get('title', 'Unknown'))
+                    logger.warning(f"Failed to redeem position {market_title}: {e}")
+                    failed.append(market_title)
 
             total_claimed = sum(p['amount'] for p in claimed)
 
@@ -724,9 +918,8 @@ class WalletManager:
             logger.warning(f"Trading activation failed for user {user_id}: {e}")
             return {'success': False, 'error': str(e)}
 
-    async def get_balance(self, user_id: int, force_refresh: bool = False) -> float:
-        """Get total available USDC balance (Safe + Polymarket)."""
-        balances = await self.get_balances(user_id)
-        if not balances.get('success'):
-            return 0.0
-        return balances.get('safe_usdc', 0) + balances.get('polymarket_usdc', 0)
+    async def get_balance(self, userid: int, force_refresh: bool = False) -> float:
+        balances = await self.get_balances(userid)
+        return (balances.get("safe_usdc", 0)
+                + balances.get("safe_usdce", 0)
+                + balances.get("polymarket_usdc", 0))

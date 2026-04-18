@@ -372,17 +372,45 @@ class CallbackHandlers:
         await query.answer("You're already tracking this wallet!", show_alert=False)
 
     async def handle_text_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle text messages - used for wallet address input in analyze mode."""
+        """Handle text messages - wallet address input for analyze, or wallet name for add."""
         user_id = update.effective_user.id
-        
+        text = update.message.text.strip()
+
+        # ── "Add Wallet" name input ──────────────────────────────────
+        trading_cmds = getattr(self.bot, 'trading_commands', None)
+        if trading_cmds and user_id in trading_cmds._pending_wallet_name:
+            del trading_cmds._pending_wallet_name[user_id]
+            wallet_name = text[:32]  # cap at 32 chars
+            await update.message.reply_text("⏳ Creating your new wallet, please wait...")
+            result = await self.bot.wallet_manager.create_additional_wallet(user_id, wallet_name=wallet_name)
+            if result.get('success'):
+                wallet_db_id = result.get('wallet_db_id')
+                # Auto-setup Safe for new wallet
+                asyncio.create_task(self._provision_additional_wallet(user_id, wallet_db_id))
+                keyboard = [[InlineKeyboardButton("🔙 Back to Wallets", callback_data="menu_trading_wallet")]]
+                await update.message.reply_text(
+                    f"✅ *{wallet_name}* wallet created!\n\n"
+                    f"Setting up your Polymarket address in the background.\n"
+                    f"Press _Back to Wallets_ to check the status.",
+                    parse_mode="Markdown",
+                    reply_markup=InlineKeyboardMarkup(keyboard)
+                )
+            else:
+                keyboard = [[InlineKeyboardButton("🔙 Back to Wallets", callback_data="menu_trading_wallet")]]
+                await update.message.reply_text(
+                    f"❌ {result.get('error', 'Failed to create wallet.')}",
+                    reply_markup=InlineKeyboardMarkup(keyboard)
+                )
+            return
+
+        # ── Analyze Wallet address input ────────────────────────────
         if user_id not in self.bot.awaiting_wallet_input:
             return
-        
-        text = update.message.text.strip().lower()
-        
-        if text.startswith('0x') and len(text) == 42:
+
+        text_lower = text.lower()
+        if text_lower.startswith('0x') and len(text_lower) == 42:
             self.bot.awaiting_wallet_input.discard(user_id)
-            await self._analyze_wallet(update, text, user_id)
+            await self._analyze_wallet(update, text_lower, user_id)
         else:
             keyboard = [
                 [InlineKeyboardButton("❌ Cancel", callback_data="menu_main")],
@@ -397,6 +425,32 @@ class CallbackHandlers:
                 reply_markup=InlineKeyboardMarkup(keyboard)
             )
     
+    async def _provision_additional_wallet(self, user_id: int, wallet_db_id: int):
+        """Background task: set up Safe for a newly created additional wallet."""
+        try:
+            wallet = await self.bot.wallet_manager.get_wallet_by_id(user_id, wallet_db_id)
+            if not wallet:
+                return
+            privy_wallet_id = wallet.get('privy_wallet_id')
+            eoa_address = wallet.get('address')
+            builder = self.bot.wallet_manager.builder
+            privy_service = self.bot.wallet_manager.privy_service
+            if builder and privy_wallet_id:
+                await asyncio.to_thread(
+                    builder.deploy_safe_privy,
+                    privy_service, privy_wallet_id, eoa_address
+                )
+                safe_address = wallet.get('safe_address')
+                if safe_address:
+                    await asyncio.to_thread(
+                        builder.set_allowances_privy,
+                        privy_service, privy_wallet_id, eoa_address, safe_address
+                    )
+                await self.bot.db.update_wallet_allowances_set_by_id(wallet_db_id, True)
+        except Exception as e:
+            import logging as _log
+            _log.getLogger(__name__).error(f"Error provisioning additional wallet {wallet_db_id}: {e}")
+
     async def _analyze_wallet(self, update: Update, wallet_address: str, user_id: int):
         """Analyze a wallet and show statistics."""
         loading_msg = await update.message.reply_text("⏳ Analyzing wallet...")

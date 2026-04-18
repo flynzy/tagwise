@@ -465,16 +465,7 @@ class NotificationService:
         except Exception as e:
             logger.error(f"Error in check_and_process_multibuy: {e}", exc_info=True)
 
-    async def _send_multibuy_alerts(
-        self,
-        market_id: str,
-        market_title: str,
-        outcome: str,
-        wallet_addresses: list,
-        recent_buys: list,
-        context: CallbackContext
-    ):
-        """Send multi-buy alerts to all subscribed users."""
+    async def _send_multibuy_alerts(self, market_id, market_title, outcome, wallet_addresses, recent_buys, context):
         try:
             users = await self.db.get_users_with_multibuy_alerts()
             if not users:
@@ -492,23 +483,30 @@ class NotificationService:
                 wallets_text += f"\n  ... and {len(wallet_addresses) - 5} more"
 
             message = (
-                f"🔥 <b>Multi-Buy Alert!</b>\n\n"
-                f"<b>Market:</b> {market_title}\n"
-                f"<b>Outcome:</b> {outcome}\n"
-                f"<b>Wallets:</b> {len(wallet_addresses)} traders\n\n"
-                f"<b>Recent Buys:</b>\n{wallets_text}\n\n"
-                f"<i>Multiple tracked wallets are buying the same outcome</i>"
+                f"🔥 **Multi-Buy Alert!**\n\n"
+                f"**Market:** {market_title}\n"
+                f"**Outcome:** {outcome}\n"
+                f"**Wallets:** {len(wallet_addresses)} traders\n\n"
+                f"**Recent Buys:**\n{wallets_text}\n\n"
+                f"_Multiple tracked wallets are buying the same outcome_"
             )
 
             for user_id in users:
                 try:
-                    await context.bot.send_message(chat_id=user_id, text=message, parse_mode='HTML')
+                    # Use the notification queue for rate limiting + retry
+                    if self.notification_queue:
+                        await self.notification_queue.enqueue(
+                            user_id=user_id, message=message, priority=6
+                        )
+                    else:
+                        await context.bot.send_message(
+                            chat_id=user_id, text=message, parse_mode='Markdown'
+                        )
                     await asyncio.sleep(0.05)
                 except Exception as e:
                     logger.error(f"Failed to send alert to {user_id}: {e}")
 
             logger.info(f"Sent multi-buy alerts to {len(users)} users")
-
         except Exception as e:
             logger.error(f"Error sending multi-buy alerts: {e}")
 
