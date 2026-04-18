@@ -3,6 +3,7 @@
 """Trade notification service."""
 
 import logging
+from collections import Counter
 from datetime import datetime, timezone
 import asyncio
 from typing import Optional
@@ -465,11 +466,27 @@ class NotificationService:
         except Exception as e:
             logger.error(f"Error in check_and_process_multibuy: {e}", exc_info=True)
 
-    async def _send_multibuy_alerts(self, market_id, market_title, outcome, wallet_addresses, recent_buys, context):
+    async def _send_multibuy_alerts(
+        self,
+        market_id: str,
+        market_title: str,
+        outcome: str,
+        wallet_addresses: list,
+        recent_buys: list,
+        context: CallbackContext
+    ):
+        """Send multi-buy alerts to users who track 2+ of the buying wallets."""
         try:
-            users = await self.db.get_users_with_multibuy_alerts()
+            # Find users who track at least 2 of the wallets involved in the multi-buy
+            user_wallet_count = Counter()
+            for addr in wallet_addresses:
+                ids = await self.db.get_users_tracking_wallet(addr)
+                for uid in ids:
+                    user_wallet_count[uid] += 1
+
+            users = [uid for uid, count in user_wallet_count.items() if count >= 2]
             if not users:
-                logger.debug("No users subscribed to multi-buy alerts")
+                logger.debug("No users track 2+ of the multi-buy wallets — skipping alert")
                 return
 
             wallet_summary = []
