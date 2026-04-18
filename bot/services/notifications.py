@@ -444,11 +444,13 @@ class NotificationService:
             self._multibuy_processed_cache[cache_key] = now
 
             market_title = trade.get('title') or trade.get('market', 'Unknown Market')
+            market_slug = trade.get('market_slug') or trade.get('slug')
             recent_buys = await self.db.get_recent_buys_for_market(market_id, outcome, hours=1)
 
             await self._send_multibuy_alerts(
                 market_id=market_id,
                 market_title=market_title,
+                market_slug=market_slug,
                 outcome=outcome,
                 wallet_addresses=wallet_addresses,
                 recent_buys=recent_buys,
@@ -473,42 +475,45 @@ class NotificationService:
         outcome: str,
         wallet_addresses: list,
         recent_buys: list,
-        context: CallbackContext
+        context: CallbackContext,
+        market_slug: str = None,
     ):
         """Send multi-buy alerts to users who track 2+ of the buying wallets."""
         try:
             # Find users who track at least 2 of the wallets involved in the multi-buy
-            logger.info(f"🔍 _send_multibuy_alerts: checking {len(wallet_addresses)} wallets: {wallet_addresses}")
             user_wallet_count = Counter()
             for addr in wallet_addresses:
                 ids = await self.db.get_users_tracking_wallet(addr)
-                logger.info(f"   wallet {addr[:10]}... tracked by users: {ids}")
                 for uid in ids:
                     user_wallet_count[uid] += 1
 
-            logger.info(f"   user tracking counts: {dict(user_wallet_count)}")
             users = [uid for uid, count in user_wallet_count.items() if count >= 2]
             if not users:
-                logger.warning(f"⚠️ No users track 2+ of the multi-buy wallets — skipping alert. Counts: {dict(user_wallet_count)}")
+                logger.debug("No users track 2+ of the multi-buy wallets — skipping alert")
                 return
 
             wallet_summary = []
             for i, wallet in enumerate(wallet_addresses[:5], 1):
                 buy = next((b for b in recent_buys if b['wallet_address'] == wallet), None)
                 amount = buy.get('usdc_size', 0) if buy else 0
-                wallet_summary.append(f" {i}. `{wallet}` - ${amount:.2f}")
+                short = f"{wallet[:6]}...{wallet[-4:]}"
+                wallet_summary.append(f"{i}) `{short}` — ${amount:.2f}")
 
             wallets_text = "\n".join(wallet_summary)
             if len(wallet_addresses) > 5:
-                wallets_text += f"\n  ... and {len(wallet_addresses) - 5} more"
+                wallets_text += f"\n... and {len(wallet_addresses) - 5} more"
+
+            # Build market line with optional link
+            if market_slug:
+                market_line = f"**Market:** [{market_title}](https://polymarket.com/event/{market_slug}) (view)\n"
+            else:
+                market_line = f"**Market:** {market_title} (view)\n"
 
             message = (
                 f"🔥 **Multi-Buy Alert!**\n\n"
-                f"**Market:** {market_title}\n"
+                f"{market_line}"
                 f"**Outcome:** {outcome}\n"
-                f"**Wallets:** {len(wallet_addresses)} traders\n\n"
                 f"**Recent Buys:**\n{wallets_text}\n\n"
-                f"_Multiple tracked wallets are buying the same outcome_"
             )
 
             for user_id in users:
