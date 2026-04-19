@@ -132,9 +132,9 @@ def format_multibuy_copy_notification(
 🤖 **Multi-Buy Copy Trade Executed!**
 
 **Market:** {market_title[:50]}
+
 **Position:** {outcome}
-**Trigger:** {wallet_count} wallets bought
-{wallets_section}
+
 **Your Trade:**
 • Amount: ${copy_amount:.2f}
 • Order ID: `{order_id or 'N/A'}`

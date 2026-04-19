@@ -988,7 +988,6 @@ class CopyTradeManager:
                         if p > 0 and s > 0:
                             prices.append(p)
                     if prices:
-                        logger.info(f"multibuy price debug outcome={trade.get('outcome')} token_id={token_id} ask0={prices[0] if prices else None} best_ask={min(prices) if prices else None}")
                         trade['price'] = min(prices)   # best ask
                 else:
                     logger.warning(f"   No asks in order book for {token_id}. Skipping all copies.")

@@ -2674,6 +2674,7 @@ class Database:
                 )
                 
                 # Get users with multi_buy_only enabled, tracking at least 1 wallet, with allowances set
+                # Use distinct() to prevent duplicates when a user has multiple wallets
                 stmt = (
                     select(CopyTradeSettings.user_id)
                     .join(UserWallet, CopyTradeSettings.user_id == UserWallet.user_id)
@@ -2686,6 +2687,7 @@ class Database:
                         UserWallet.allowances_set == True,
                         UserSubscription.tier == SubscriptionTier.PRO.value
                     )
+                    .distinct()
                 )
                 
                 result = await session.execute(stmt)

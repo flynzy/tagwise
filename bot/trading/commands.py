@@ -905,6 +905,14 @@ class TradingCommands:
         
         keyboard = [
             [InlineKeyboardButton(
+                f"{'✅' if settings.copy_buys else '❌'} Copy Buys", 
+                callback_data="copy_toggle_buys"
+            ),
+            InlineKeyboardButton(
+                f"{'✅' if settings.copy_sells else '❌'} Copy Sells", 
+                callback_data="copy_toggle_sells"
+            )],
+            [InlineKeyboardButton(
                 f"📈 Buy Settings: {settings.get_buy_display()}", 
                 callback_data="copy_buy_settings"
             )],
@@ -915,14 +923,6 @@ class TradingCommands:
             [InlineKeyboardButton(
                 f"🎯 Filters & Limits", 
                 callback_data="copy_filter_settings"
-            )],
-            [InlineKeyboardButton(
-                f"{'✅' if settings.copy_buys else '❌'} Copy Buys", 
-                callback_data="copy_toggle_buys"
-            ),
-            InlineKeyboardButton(
-                f"{'✅' if settings.copy_sells else '❌'} Copy Sells", 
-                callback_data="copy_toggle_sells"
             )],
             [InlineKeyboardButton("⚡ Multi-Buy Settings", 
             callback_data="copy_multibuysettings")],

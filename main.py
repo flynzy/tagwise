@@ -112,6 +112,7 @@ def setup_logging():
     logging.getLogger("telegram.ext").setLevel(logging.WARNING)
     logging.getLogger("asyncio").setLevel(logging.WARNING)
     logging.getLogger("urllib3").setLevel(logging.WARNING)
+    logging.getLogger("privy").setLevel(logging.WARNING)
     
     # Keep your bot logs at INFO level
     logging.getLogger("bot").setLevel(logging.INFO)
