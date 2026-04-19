@@ -236,6 +236,7 @@ def format_trade_notification(
     wallet_short = format_wallet_address(wallet_address)
     wallet_name = trade.get('wallet_name') or wallet_short
     market = trade.get('title') or trade.get('market', 'Unknown Market')
+    market_slug = trade.get('market_slug') or trade.get('slug')
     outcome = trade.get('outcome', 'YES')
     side = trade.get('side', 'BUY')
     size = float(trade.get('size', 0) or 0)
@@ -243,13 +244,18 @@ def format_trade_notification(
     usdc_size = float(trade.get('usdc_size', 0) or 0) or (size * price)
     emoji = "🟢" if side == "BUY" else "🔴"
 
+    if market_slug:
+        market_line = f"**Market:** {market} [(view)](https://polymarket.com/event/{market_slug})"
+    else:
+        market_line = f"**Market:** {market}"
+
     message = f"""
 {emoji} **New Trade Alert!**
 
 **Wallet:** {wallet_name}
 `{wallet_short}`
 
-**Market:** {market}
+{market_line}
 
 **Trade:**
 • Action: {side} {outcome}
@@ -505,9 +511,9 @@ class NotificationService:
 
             # Build market line with optional link
             if market_slug:
-                market_line = f"**Market:** [{market_title}](https://polymarket.com/event/{market_slug}) (view)\n"
+                market_line = f"**Market:** {market_title} [(view)](https://polymarket.com/event/{market_slug})\n"
             else:
-                market_line = f"**Market:** {market_title} (view)\n"
+                market_line = f"**Market:** {market_title}\n"
 
             message = (
                 f"🔥 **Multi-Buy Alert!**\n\n"
