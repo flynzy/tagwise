@@ -121,6 +121,7 @@ def format_multibuy_copy_notification(
     success: bool = True,
     error: str = None,
     wallet_lines: list[str] = None,  # ✅ NEW: pre-formatted wallet strings
+    price: float = None,
 ) -> str:
     """Format notification for multi-buy copy trade execution"""
     wallets_section = ""
@@ -128,19 +129,17 @@ def format_multibuy_copy_notification(
         wallets_section = "\n**Triggered by:**\n" + "\n".join(f"• {w}" for w in wallet_lines) + "\n"
 
     if success:
-        return f"""
-🤖 **Multi-Buy Copy Trade Executed!**
-
-**Market:** {market_title[:50]}
-
-**Position:** {outcome}
-
-**Your Trade:**
-• Amount: ${copy_amount:.2f}
-• Order ID: `{order_id or 'N/A'}`
-
-✅ Trade executed successfully!
-""".strip()
+        price_line = f"\n• Price: {format_price_cents(price)}" if price is not None else ""
+        return (
+            f"🤖 **Multi-Buy Copy Trade Executed!**\n\n"
+            f"**Market:** {market_title[:50]}\n"
+            f"**Position:** {outcome}\n"
+            f"**Your Trade:**\n"
+            f"• Amount: ${copy_amount:.2f}"
+            f"{price_line}\n"
+            f"• Order ID: `{order_id or 'N/A'}`\n"
+            f"✅ Trade executed successfully!"
+        )
     else:
         return f"""
 ⚠️ **Multi-Buy Copy Trade Failed**
@@ -159,6 +158,12 @@ _Check your wallet balance and settings_
 def format_wallet_address(address: str) -> str:
     """Format wallet address for display"""
     return address
+
+
+def format_price_cents(price: float) -> str:
+    """Format price as cents (e.g. 0.40 -> 40.0¢)"""
+    cents = price * 100
+    return f"{cents:.1f}¢"
 
 
 def format_confidence_bar(score: int) -> str:
@@ -249,26 +254,22 @@ def format_trade_notification(
     else:
         market_line = f"**Market:** {market}"
 
-    message = f"""
-{emoji} **New Trade Alert!**
+    wallet_short_display = f"{wallet_address[:6]}...{wallet_address[-4:]}" if len(wallet_address) > 10 else wallet_address
+    wallet_line = f"**Wallet:** {wallet_name} - `{wallet_short_display}`" if wallet_name != wallet_address else f"**Wallet:** `{wallet_short_display}`"
 
-**Wallet:** {wallet_name}
-`{wallet_short}`
-
-{market_line}
-
-**Trade:**
-• Action: {side} {outcome}
-• Size: {size:.2f} shares
-• Price: ${price:.4f}
-• Value: ${usdc_size:.2f}
-"""
+    message = (
+        f"{emoji} **New Trade Alert!**\n\n"
+        f"{wallet_line}\n\n"
+        f"{market_line}\n\n"
+        f"**Trade:**\n"
+        f"• Action: {side} {outcome}\n"
+        f"• Size: {size:.2f} shares\n"
+        f"• Price: {format_price_cents(price)}\n"
+        f"• Value: ${usdc_size:.2f}"
+    )
     if include_confidence and confidence_score_obj is not None:
         message += format_confidence_section(confidence_score_obj)
 
-    message += f"""
-**Time:** {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')} UTC
-"""
     return message.strip()
 
 
@@ -509,6 +510,15 @@ class NotificationService:
             if len(wallet_addresses) > 5:
                 wallets_text += f"\n... and {len(wallet_addresses) - 5} more"
 
+            # Compute average price from recent_buys
+            total_value_all = sum(float(b.get('usdc_size', 0)) for b in recent_buys)
+            total_shares_all = sum(
+                float(b.get('usdc_size', 0)) / float(b.get('price', 1))
+                for b in recent_buys if float(b.get('price', 0)) > 0
+            )
+            avg_price_all = total_value_all / total_shares_all if total_shares_all > 0 else 0
+            avg_price_line = f"**Average Price:** {format_price_cents(avg_price_all)}\n" if avg_price_all > 0 else ""
+
             # Build market line with optional link
             if market_slug:
                 market_line = f"**Market:** {market_title} [(view)](https://polymarket.com/event/{market_slug})\n"
@@ -519,6 +529,7 @@ class NotificationService:
                 f"🔥 **Multi-Buy Alert!**\n\n"
                 f"{market_line}"
                 f"**Outcome:** {outcome}\n"
+                f"{avg_price_line}"
                 f"**Recent Buys:**\n{wallets_text}\n\n"
             )
 
@@ -572,7 +583,10 @@ class NotificationService:
                         wallet_lines.append(f"_...and {len(wallet_addresses) - 5} more_")
 
                     if result.get('success'):
-                        copy_amount = result.get('copy_trade', {}).get('usdc_amount', 0)
+                        copy_trade_info = result.get('copy_trade', {})
+                        copy_amount = copy_trade_info.get('usdc_amount', 0)
+                        copy_price = copy_trade_info.get('price') or trade.get('price')
+                        copy_price = float(copy_price) if copy_price is not None else None
                         logger.info(f"   ✅ Multi-buy copy succeeded for user {user_id}")
                         message = format_multibuy_copy_notification(
                             market_title=market_title,
@@ -581,7 +595,8 @@ class NotificationService:
                             copy_amount=copy_amount,
                             order_id=result.get('order_id'),
                             success=True,
-                            wallet_lines=wallet_lines
+                            wallet_lines=wallet_lines,
+                            price=copy_price,
                         )
 
                     elif result.get('skipped'):
