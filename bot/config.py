@@ -19,7 +19,7 @@ class TierLimits:
     PRO_LEADERBOARD_FILTERS = True
     
     # Pricing
-    PRO_PRICE_MONTHLY = 10.00
+    PRO_PRICE_MONTHLY = 29.00
     PRO_PRICE_ANNUAL = 199.00
 
 
