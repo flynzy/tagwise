@@ -53,7 +53,7 @@ Track top Polymarket traders and get real-time notifications of their trades.
 Track Polymarket wallets and get notified of their trades.
 
 **Currently Tracking:**
-• Custom Wallets: {custom_count}
+• Custom Traders: {custom_count}
 • Leaderboard Traders: {tagwise_count}
 """
         

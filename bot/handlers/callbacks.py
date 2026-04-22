@@ -275,7 +275,7 @@ class CallbackHandlers:
                 [InlineKeyboardButton("⬅️ Back to Menu", callback_data="menu_main")],
             ]
             await query.edit_message_text(
-                f"❌ You've reached the free tier limit of {TierLimits.FREE_MAX_CUSTOM_WALLETS} custom wallets.\n\n"
+                f"❌ You've reached the free tier limit of {TierLimits.FREE_MAX_CUSTOM_WALLETS} custom traders.\n\n"
                 f"Upgrade to PRO for unlimited wallet tracking!",
                 parse_mode='Markdown',
                 reply_markup=InlineKeyboardMarkup(keyboard)

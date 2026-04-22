@@ -42,7 +42,7 @@ class DisplayViews:
             expires = expires_at.strftime('%Y-%m-%d') if expires_at else 'N/A'
             tier_info = f"**Expires:** {expires}\n**Days Remaining:** {days_left}"
             limits_info = (
-                f"• Custom Wallets: {custom_count} / ∞\n"
+                f"• Custom Traders: {custom_count} / ∞\n"
                 f"• Leaderboard Traders: {tagwise_count} / ∞\n"
                 f"• Confidence Scores: ✅\n"
                 f"• Multi-buy Alerts: ✅"
@@ -53,7 +53,7 @@ class DisplayViews:
             max_custom = TierLimits.FREE_MAX_CUSTOM_WALLETS
             max_tagwise = TierLimits.FREE_MAX_TAGWISE_TRADERS
             limits_info = (
-                f"• Custom Wallets: {custom_count} / {max_custom}\n"
+                f"• Custom Traders: {custom_count} / {max_custom}\n"
                 f"• Leaderboard Traders: {tagwise_count} / {max_tagwise}\n"
                 f"• Confidence Scores: ❌\n"
                 f"• Multi-buy Alerts: ❌"
