@@ -1344,6 +1344,32 @@ class Database:
                     session.add(user)
                     await session.flush()
 
+                # 1b. Enforce tier quota — last line of defence regardless of caller
+                is_pro_user = False
+                if user.tier == SubscriptionTier.PRO.value:
+                    if not (user.subscription_expires_at and user.subscription_expires_at < datetime.now(timezone.utc)):
+                        is_pro_user = True
+
+                if not is_pro_user:
+                    leaderboard_count_stmt = select(func.count()).select_from(UserWalletTracking).where(
+                        UserWalletTracking.user_id == user_id,
+                        UserWalletTracking.wallet_type == WalletType.TAGWISE.value
+                    )
+                    lb_result = await session.execute(leaderboard_count_stmt)
+                    current_lb_count = lb_result.scalar() or 0
+                    max_lb = TierLimits.FREE_MAX_TAGWISE_TRADERS
+                    if current_lb_count >= max_lb:
+                        logger.info(
+                            f"User {user_id} already at FREE leaderboard limit "
+                            f"({current_lb_count}/{max_lb}). Blocking track_leaderboard_top."
+                        )
+                        return 0, current_lb_count
+                    # Trim incoming list to available slots
+                    available_slots = max_lb - current_lb_count
+                    if len(addresses) > available_slots:
+                        addresses = addresses[:available_slots]
+                        traders = [t for t in traders if t.get('address', '').lower() in set(addresses)]
+
                 # 2. Fetch all wallets for these addresses in one query
                 stmt = select(MonitoredWallet).where(MonitoredWallet.address.in_(addresses))
                 result = await session.execute(stmt)

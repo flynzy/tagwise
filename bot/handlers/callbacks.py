@@ -191,7 +191,30 @@ class CallbackHandlers:
                 reply_markup=InlineKeyboardMarkup(keyboard)
             )
             return
-        
+
+        # ── Tier quota check ──────────────────────────────────────────
+        is_pro = await self.db.is_pro(user_id)
+        if not is_pro:
+            counts = await self.db.get_user_wallet_counts(user_id)
+            current_leaderboard = counts['leaderboard']
+            max_leaderboard = TierLimits.FREE_MAX_TAGWISE_TRADERS
+            if current_leaderboard >= max_leaderboard:
+                keyboard = [
+                    [InlineKeyboardButton("💎 Upgrade to PRO", callback_data="menu_upgrade")],
+                    [InlineKeyboardButton("⬅️ Back to Menu", callback_data="menu_main")],
+                ]
+                await query.edit_message_text(
+                    f"❌ You've reached the free tier limit of {max_leaderboard} leaderboard traders.\n\n"
+                    f"🔥 Upgrade to PRO to track all top traders!",
+                    parse_mode='Markdown',
+                    reply_markup=InlineKeyboardMarkup(keyboard)
+                )
+                return
+            # Trim the list so FREE users only fill their remaining slots
+            available = max_leaderboard - current_leaderboard
+            if len(traders) > available:
+                traders = traders[:available]
+
         new_count, total_tracked = await self.db.track_leaderboard_top(user_id, traders)
         
         # Build trader list with better name formatting
